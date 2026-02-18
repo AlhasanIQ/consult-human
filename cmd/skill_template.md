@@ -1,15 +1,15 @@
 ---
 name: consult-human
 description: Use when an agent needs a human decision, approval, or clarification. This skill explains how to set up and run consult-human for blocking and non-blocking human consultations, including ask flags, setup flows, config reset behavior, and storage/cache clearing commands. Better ask than assume.
-compatibility: Designed for Claude Code and Codex CLI with consult-human installed and available on PATH.
+compatibility: Designed for Claude Code CLI with consult-human installed and available on PATH.
 ---
 
 # consult-human Skill
 
-Use `consult-human` whenever an agent needs a human decision, approval, or clarification.
+Use `consult-human` whenever an agent needs a human decision, approval, or clarification instead of assuming things.
 
 ## Current CLI Surface
-- When lost, do `--help`. Its supported universally in the command.
+- When you want to understand the cli spec and you're lost, do `--help`. Its supported universally in the command.
 - `consult-human ask [flags] <question>`
 - `consult-human setup [flags]`
 - `consult-human config <path|show|init|set|reset>`
@@ -18,7 +18,10 @@ Use `consult-human` whenever an agent needs a human decision, approval, or clari
 
 ## Setup
 
-Run setup before the first consultation or when re-linking Telegram.
+- IMPORTANT: If you are running claude code as a VS Code extension and if you face `command not found: consult-human`, the default `~/.zshrc`/`~/.bashrc` shell profiles are not loaded. Login profiles are sourced instead (`~/.zshenv`, `~/.zprofile`, `~/.zlogin`, `~/.bash_profile`, `~/.bash_login`).
+
+Run `consult-human setup` before the first consultation or when re-linking a provider (ex Telegram).
+`setup` auto-ensures the current `consult-human` binary directory is on PATH in the detected shell login profile in both interactive and non-interactive modes. It prints what it changed and does not require extra prompts for PATH.
 
 Choose setup mode based on who is doing the setup:
 
@@ -26,18 +29,18 @@ Choose setup mode based on who is doing the setup:
 2. `--non-interactive` mode: use when the agent will run steps turn-by-turn in via bash commands.
 
 Supported setup flags:
-- `--non-interactive`: prints a list of steps to do the set up, without a TTY. Agent-friendly
-- `--provider telegram`: restrict setup to Telegram.
+- `--non-interactive`: prints a list of setup steps without TTY prompts, and still auto-ensures shell PATH. Agent-friendly.
+- `--provider telegram`: restrict setup to a specific messaging provider Telegram.
 
 ### Interactive Setup (User-Driven, TTY)
 
 1. Run `consult-human setup`.
-2. Follow instructions, including the required final skill-install target selection (comma-separated: `claude`, `codex`, or `both`).
-3. Complete the required install-scope selection (`global`, `current repo`, or `custom repo path`); setup shows destination paths before installing.
+2. Follow instructions
 
 ### Non-Interactive Setup (Agent-Driven, one-shot commands)
 
 Use this mode when you want explicit steps without TTY or terminal interactivity. Agent-friendly.
+This mode still performs shell PATH ensure automatically.
 
 - `consult-human setup --non-interactive`
 - `consult-human setup --non-interactive --provider telegram`
@@ -101,17 +104,12 @@ The only way to do async/non-blocking consultation is via leveraging the capabil
 If you are Claude Code:
 Execute the `consult-human ask ...` command via your Bash tool, setting the `run_in_background` parameter as true, and `timeout` as 600000 (10 min).
 
-If you are Codex:
-Due to the constraints of your harness, you cant do this. 
-
 ## Practical Notes
 
 - Use `--timeout` for longer waits, for example `--timeout 30m`.
 - If a request times out, send a new `ask` request.
 - Keep prompts concise and explicit for mobile replies.
 - WhatsApp is temporarily disabled; use Telegram for active consultations.
-
-
 
 ## Commands and Flags Reference
 
@@ -133,7 +131,7 @@ Usage:
 - `consult-human setup --non-interactive [--provider telegram]`
 
 Flags:
-- `--non-interactive`: Print checklist instead of prompting.
+- `--non-interactive`: Print checklist instead of prompting, while still auto-ensuring shell PATH.
 - `--provider <name>`: Restrict setup to a provider (currently `telegram`).
 
 ### `config`

@@ -16,6 +16,20 @@ import (
 	"github.com/AlhasanIQ/consult-human/config"
 )
 
+func stubSetupEnsureShellPath(t *testing.T) {
+	t.Helper()
+	origEnsurePathFn := setupEnsureShellPathFn
+	setupEnsureShellPathFn = func() (setupShellPathStatus, error) {
+		return setupShellPathStatus{
+			Shell:          "zsh",
+			ProfilePath:    "/tmp/.zshenv",
+			BinaryDir:      "/tmp/bin",
+			AlreadyPresent: true,
+		}, nil
+	}
+	t.Cleanup(func() { setupEnsureShellPathFn = origEnsurePathFn })
+}
+
 func TestParseSetupProviderFlags(t *testing.T) {
 	got, err := parseSetupProviderFlags([]string{"telegram"})
 	if err != nil {
@@ -107,6 +121,7 @@ func TestParseSetupProviderFlagsRejectsWhatsApp(t *testing.T) {
 func TestRunSetupTelegramFlow(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv(config.EnvConfigPath, cfgPath)
+	stubSetupEnsureShellPath(t)
 
 	origSkillFn := setupSkillInstallFn
 	defer func() { setupSkillInstallFn = origSkillFn }()
@@ -164,6 +179,7 @@ func TestRunSetupTelegramFlow(t *testing.T) {
 func TestRunSetupRejectsAlreadyConfiguredProvider(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv(config.EnvConfigPath, cfgPath)
+	stubSetupEnsureShellPath(t)
 
 	cfg := config.Default()
 	cfg.Telegram.BotToken = "existing-token"
@@ -188,6 +204,7 @@ func TestRunSetupRejectsAlreadyConfiguredProvider(t *testing.T) {
 func TestRunSetupTelegramUsesSavedTokenWithoutPrompt(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv(config.EnvConfigPath, cfgPath)
+	stubSetupEnsureShellPath(t)
 
 	origCurrentDirFn := setupCurrentDirFn
 	setupCurrentDirFn = func() (string, error) { return t.TempDir(), nil }
@@ -273,6 +290,7 @@ func TestRunSetupRejectsWhatsAppProvider(t *testing.T) {
 func TestRunSetupNonInteractiveChecklistTelegram(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv(config.EnvConfigPath, cfgPath)
+	stubSetupEnsureShellPath(t)
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer
@@ -288,6 +306,9 @@ func TestRunSetupNonInteractiveChecklistTelegram(t *testing.T) {
 	got := out.String()
 	if !strings.Contains(got, "Setup checklist (non-interactive)") {
 		t.Fatalf("expected checklist header, got: %q", got)
+	}
+	if !strings.Contains(got, "Shell PATH:") {
+		t.Fatalf("expected shell PATH status block, got: %q", got)
 	}
 	if !strings.Contains(got, "consult-human config set telegram.bot_token") {
 		t.Fatalf("expected telegram token command, got: %q", got)
@@ -306,9 +327,43 @@ func TestRunSetupNonInteractiveChecklistTelegram(t *testing.T) {
 	}
 }
 
+func TestRunSetupNonInteractiveEnsuresShellPath(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	origEnsurePathFn := setupEnsureShellPathFn
+	calls := 0
+	setupEnsureShellPathFn = func() (setupShellPathStatus, error) {
+		calls++
+		return setupShellPathStatus{
+			Shell:          "zsh",
+			ProfilePath:    "/tmp/.zshenv",
+			BinaryDir:      "/tmp/bin",
+			AlreadyPresent: true,
+		}, nil
+	}
+	defer func() { setupEnsureShellPathFn = origEnsurePathFn }()
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	if err := runSetup([]string{"--non-interactive"}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	}); err != nil {
+		t.Fatalf("runSetup returned error: %v", err)
+	}
+
+	if calls != 1 {
+		t.Fatalf("expected shell-path ensure to be called once, got %d", calls)
+	}
+}
+
 func TestRunSetupNonInteractiveRejectsWhatsAppProvider(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv(config.EnvConfigPath, cfgPath)
+	stubSetupEnsureShellPath(t)
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer
@@ -329,6 +384,7 @@ func TestRunSetupNonInteractiveRejectsWhatsAppProvider(t *testing.T) {
 func TestRunSetupNonInteractiveShowsConfiguredProviderStatus(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv(config.EnvConfigPath, cfgPath)
+	stubSetupEnsureShellPath(t)
 
 	cfg := config.Default()
 	cfg.Telegram.BotToken = "existing-token"
@@ -363,6 +419,7 @@ func TestRunSetupNonInteractiveShowsConfiguredProviderStatus(t *testing.T) {
 func TestRunSetupNonInteractiveRejectsConfiguredProvider(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv(config.EnvConfigPath, cfgPath)
+	stubSetupEnsureShellPath(t)
 
 	cfg := config.Default()
 	cfg.Telegram.BotToken = "existing-token"

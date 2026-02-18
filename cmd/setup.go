@@ -85,6 +85,7 @@ func runSetupInteractive(io IO, cfg config.Config, selected []string) error {
 	s := newSty(io.ErrOut)
 	s.header("consult-human · interactive setup")
 	s.info(s.dim("WhatsApp is temporarily disabled. Configuring Telegram only."))
+	runSetupShellPathInteractiveStep(s)
 
 	if err := validateSetupSelection(cfg, selected); err != nil {
 		return err
@@ -121,12 +122,6 @@ func runSetupInteractive(io IO, cfg config.Config, selected []string) error {
 }
 
 func runSetupNonInteractive(w io.Writer, cfg config.Config, selected []string, selectedExplicit bool) error {
-	if selectedExplicit {
-		if err := validateSetupSelection(cfg, selected); err != nil {
-			return err
-		}
-	}
-
 	path, err := config.ConfigPath()
 	if err != nil {
 		return err
@@ -136,6 +131,13 @@ func runSetupNonInteractive(w io.Writer, cfg config.Config, selected []string, s
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "Config path: %s\n", path)
 	fmt.Fprintln(w)
+	writeShellPathChecklist(w)
+
+	if selectedExplicit {
+		if err := validateSetupSelection(cfg, selected); err != nil {
+			return err
+		}
+	}
 
 	for _, providerName := range selected {
 		switch providerName {
@@ -446,6 +448,7 @@ func printSetupUsage(w io.Writer) {
 	fmt.Fprintln(w, "  consult-human setup --non-interactive [--provider telegram]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Interactive first-time setup, or checklist-only mode.")
+	fmt.Fprintln(w, "Both setup modes ensure consult-human binary PATH in your shell login profile.")
 	fmt.Fprintln(w, "WhatsApp is temporarily disabled.")
 }
 

@@ -22,8 +22,36 @@ The project is a SKILL.md and a cli tool, that empowers the agent and steers it 
 ## Build
 
 ```bash
-go build -o consult-human .
+CGO_ENABLED=0 GOFLAGS='-trimpath -mod=readonly -buildvcs=true' \
+  go build -ldflags='-s -w -buildid=' -o consult-human .
 ```
+
+## Install (Single Command)
+
+Install latest release, then run setup interactively:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/AlhasanIQ/consult-human/main/install.sh)
+```
+
+Install latest release, then run setup in non-interactive mode:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AlhasanIQ/consult-human/main/install.sh | bash -s -- --setup-mode non-interactive
+```
+
+Pin to a specific release tag:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AlhasanIQ/consult-human/main/install.sh | bash -s -- --version v0.1.0 --setup-mode non-interactive
+```
+
+Installer notes:
+
+- downloads the right release asset for your OS/arch from GitHub Releases
+- verifies SHA256 using `checksums.txt`
+- installs `consult-human` to `~/.local/bin` by default (override with `--install-dir`)
+- supports `--setup-mode auto|interactive|non-interactive|skip`
 
 ## Configuration
 
@@ -56,10 +84,12 @@ consult-human storage path --provider whatsapp
 consult-human setup
 # includes required final skill-install target selection (claude/codex/both)
 # and required install-scope selection (global/current repo/custom repo path)
+# and auto-ensures consult-human binary directory is on shell PATH
 
 # checklist-only setup plan (non-interactive)
 consult-human setup --non-interactive
 consult-human setup --non-interactive --provider telegram
+# non-interactive mode also auto-ensures shell PATH (no extra prompt)
 
 # install SKILL.md into agent runtimes
 consult-human skill install --target claude
@@ -88,6 +118,14 @@ Interactive `setup` behavior for skill install:
 - global scope installs for all Claude/Codex sessions in this user account on this machine
 - if you are inside a git repo and it has `.claude` or `.agents`, setup defaults scope to current repo
 - setup also offers custom repo path input
+
+`setup` PATH behavior (interactive and non-interactive):
+
+- auto-detects shell (`zsh` or `bash`) and upserts PATH in a login profile
+- `zsh`: prefers existing `~/.zshenv`, then `~/.zprofile`, then `~/.zlogin` (fallback creates `~/.zshenv`)
+- `bash`: prefers existing `~/.bash_profile`, then `~/.bash_login` (fallback creates `~/.bash_login`)
+- prints what file/path was used; no extra command required
+- this is important for Claude Code VS Code extension environments where `~/.zshrc`/`~/.bashrc` may not be loaded
 
 `skill install` flags:
 
@@ -198,4 +236,27 @@ Telegram best-practice sources:
 
 ```bash
 go test ./...
+```
+
+## CI/CD
+
+- CI workflow (`.github/workflows/ci.yml`) runs on push to `main` and pull requests:
+  - `go test ./...`
+  - `go mod verify`
+  - `go vet ./...`
+  - `CGO_ENABLED=0 GOFLAGS='-trimpath -mod=readonly -buildvcs=true' go build -ldflags='-s -w -buildid=' -o consult-human .`
+  - `bash -n install.sh`
+- Release workflow (`.github/workflows/release.yml`) runs on tag pushes like `v0.1.0`:
+  - runs tests
+  - verifies modules and vets code
+  - cross-builds static release binaries for `linux/darwin` and `amd64/arm64`
+  - creates deterministic tar archives
+  - generates `checksums.txt`
+  - publishes release assets with `gh release create`/`gh release upload`
+
+Release trigger:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
 ```

@@ -18,9 +18,10 @@ Use `consult-human` whenever an agent needs a human decision, approval, or clari
 
 ## Setup
 
-- IMPORTANT: If you are running claude code as a VS Code extension, the default `~/.zshrc`/`~/.bashrc` shell profiles are not loaded. Only `~/.zshenv`, `~/.zprofile`, `~/.zlogin` / `~/.bash_login` are sourced. Hence, you need to ensure the `consult-human` binary is added to the PATH env var there. The reason is that Bash Tool in claude code inherits profies from the parent process.
+- IMPORTANT: If you are running claude code as a VS Code extension and if you face `command not found: consult-human`, the default `~/.zshrc`/`~/.bashrc` shell profiles are not loaded. Login profiles are sourced instead (`~/.zshenv`, `~/.zprofile`, `~/.zlogin`, `~/.bash_profile`, `~/.bash_login`).
 
 Run `consult-human setup` before the first consultation or when re-linking a provider (ex Telegram).
+`setup` auto-ensures the current `consult-human` binary directory is on PATH in the detected shell login profile in both interactive and non-interactive modes. It prints what it changed and does not require extra prompts for PATH.
 
 Choose setup mode based on who is doing the setup:
 
@@ -28,7 +29,7 @@ Choose setup mode based on who is doing the setup:
 2. `--non-interactive` mode: use when the agent will run steps turn-by-turn in via bash commands.
 
 Supported setup flags:
-- `--non-interactive`: prints a list of steps to do the set up, without a TTY. Agent-friendly
+- `--non-interactive`: prints a list of setup steps without TTY prompts, and still auto-ensures shell PATH. Agent-friendly.
 - `--provider telegram`: restrict setup to a specific messaging provider Telegram.
 
 ### Interactive Setup (User-Driven, TTY)
@@ -39,6 +40,7 @@ Supported setup flags:
 ### Non-Interactive Setup (Agent-Driven, one-shot commands)
 
 Use this mode when you want explicit steps without TTY or terminal interactivity. Agent-friendly.
+This mode still performs shell PATH ensure automatically.
 
 - `consult-human setup --non-interactive`
 - `consult-human setup --non-interactive --provider telegram`
@@ -129,7 +131,7 @@ Usage:
 - `consult-human setup --non-interactive [--provider telegram]`
 
 Flags:
-- `--non-interactive`: Print checklist instead of prompting.
+- `--non-interactive`: Print checklist instead of prompting, while still auto-ensuring shell PATH.
 - `--provider <name>`: Restrict setup to a provider (currently `telegram`).
 
 ### `config`

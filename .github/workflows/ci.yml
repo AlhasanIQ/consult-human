@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Go version
+        run: go version
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Verify modules
+        run: go mod verify
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          export GOFLAGS='-trimpath -mod=readonly -buildvcs=true'
+          CGO_ENABLED=0 go build -ldflags='-s -w -buildid=' -o consult-human .
+
+      - name: Validate installer script
+        run: bash -n install.sh
