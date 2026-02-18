@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is consult-human?
 
-A CLI relay tool that lets AI coding agents (Claude Code, GPT Codex) send questions to a human via messaging apps (Telegram, WhatsApp) and block until the human replies. Designed for developers who run agents with full permissions and want to supervise from their phone.
+A CLI relay tool that lets AI coding agents (Claude Code, GPT Codex) send questions to a human via messaging apps and block until the human replies. Designed for developers who run agents with full permissions and want to supervise from their phone while away from desk.
 
-**How it works:** Agent calls `consult-human ask "question"` → message sent to human on Telegram/WhatsApp → human replies on their phone → CLI unblocks and prints the reply to stdout.
+**How it works:** Agent calls `consult-human ask ...` → message sent to human on a provider channel → human replies on phone → CLI unblocks and prints the answer payload to stdout.
 
 ## Build & Development
 
@@ -30,18 +30,20 @@ golangci-lint run
 ## Architecture
 
 ```
-cmd/           CLI commands (cobra). root.go, ask.go, config.go
-provider/      Messaging provider interface + implementations (telegram.go, whatsapp.go)
-config/        Config loading/saving (~/.config/consult-human/config.yaml)
+cmd/           CLI command parsing/dispatch (stdlib-based)
+provider/      Messaging provider interface + implementations
+config/        Config loading/saving (XDG + env override)
 main.go        Entry point
 ```
 
 ### Key design decisions
 
-- **Provider interface** in `provider/provider.go` defines `Send(ctx, message) → (requestID, error)` and `Receive(ctx, requestID) → (reply, error)`. All messaging backends implement this.
-- **stdout is for the reply only.** The `ask` command prints just the raw reply text to stdout so agents can parse it trivially. All status/errors go to stderr.
-- **Config** lives at `~/.config/consult-human/config.yaml`. Stores active provider choice and per-provider credentials.
-- **No SDK dependencies for Telegram** — uses net/http directly against the Bot API to keep dependencies minimal.
+- **Provider interface** in `provider/provider.go` defines `Send(ctx, request) → (requestID, error)` and `Receive(ctx, requestID) → (reply, error)`. All messaging backends implement this.
+- **stdout is for the answer payload only.** The `ask` command prints the machine-consumable answer to stdout. All status/errors go to stderr.
+- **Config path is configurable.** Uses XDG-compatible defaults with `CONSULT_HUMAN_CONFIG` override.
+- **Question modes** include open-ended and multiple-choice (including `other` free-text replies).
+- **WhatsApp transport direction is Web-session based, but currently disabled.** No Cloud API/Twilio path in current scope.
+- **Keep dependencies minimal** where practical; use direct HTTP/API integrations when it improves maintainability.
 
 ### Adding a new provider
 

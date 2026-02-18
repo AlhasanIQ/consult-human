@@ -1,0 +1,329 @@
+package cmd
+
+import (
+	"bytes"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/AlhasanIQ/consult-human/config"
+)
+
+func TestParseSetupProviderFlags(t *testing.T) {
+	got, err := parseSetupProviderFlags([]string{"telegram"})
+	if err != nil {
+		t.Fatalf("parseSetupProviderFlags returned error: %v", err)
+	}
+	want := []string{setupProviderTelegram}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("want %#v got %#v", want, got)
+	}
+}
+
+func TestParseSetupProviderFlagsRejectsInvalid(t *testing.T) {
+	if _, err := parseSetupProviderFlags([]string{"3"}); err == nil {
+		t.Fatalf("expected error for invalid option")
+	}
+}
+
+func TestParseSetupProviderFlagsRejectsWhatsApp(t *testing.T) {
+	if _, err := parseSetupProviderFlags([]string{"whatsapp"}); err == nil {
+		t.Fatalf("expected error for disabled whatsapp")
+	}
+}
+
+func TestRunSetupTelegramFlow(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	origLinkFn := telegramSetupLinkFn
+	telegramSetupLinkFn = func(token string, timeout time.Duration, w io.Writer) (int64, error) {
+		if token != "test-token" {
+			return 0, fmt.Errorf("unexpected token: %s", token)
+		}
+		return 4242, nil
+	}
+	defer func() { telegramSetupLinkFn = origLinkFn }()
+
+	input := strings.NewReader("test-token\n")
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	if err := runSetup(nil, IO{In: input, Out: &out, ErrOut: &errOut}); err != nil {
+		t.Fatalf("runSetup returned error: %v", err)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load returned error: %v", err)
+	}
+	if got, want := cfg.Telegram.BotToken, "test-token"; got != want {
+		t.Fatalf("want telegram token %q got %q", want, got)
+	}
+	if got, want := cfg.ActiveProvider, setupProviderTelegram; got != want {
+		t.Fatalf("want active provider %q got %q", want, got)
+	}
+	if got, want := cfg.Telegram.ChatID, int64(4242); got != want {
+		t.Fatalf("want telegram chat id %d got %d", want, got)
+	}
+	if strings.Contains(errOut.String(), "Next steps:") {
+		t.Fatalf("did not expect Next steps block in output, got: %q", errOut.String())
+	}
+}
+
+func TestRunSetupRejectsAlreadyConfiguredProvider(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	cfg := config.Default()
+	cfg.Telegram.BotToken = "existing-token"
+	cfg.Telegram.ChatID = 999
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("config.Save returned error: %v", err)
+	}
+
+	input := strings.NewReader("")
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	err := runSetup(nil, IO{In: input, Out: &out, ErrOut: &errOut})
+	if err == nil {
+		t.Fatalf("expected error for already configured provider")
+	}
+	if !strings.Contains(err.Error(), "config reset --provider telegram") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunSetupTelegramUsesSavedTokenWithoutPrompt(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	cfg := config.Default()
+	cfg.Telegram.BotToken = "saved-token"
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("config.Save returned error: %v", err)
+	}
+
+	origLinkFn := telegramSetupLinkFn
+	telegramSetupLinkFn = func(token string, timeout time.Duration, w io.Writer) (int64, error) {
+		if token != "saved-token" {
+			return 0, fmt.Errorf("unexpected token: %s", token)
+		}
+		return 777, nil
+	}
+	defer func() { telegramSetupLinkFn = origLinkFn }()
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	done := make(chan error, 1)
+	go func() {
+		done <- runSetup([]string{"--provider", "telegram"}, IO{
+			In:     strings.NewReader(""),
+			Out:    &out,
+			ErrOut: &errOut,
+		})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runSetup returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("runSetup appeared to block waiting for token prompt")
+	}
+
+	updated, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load returned error: %v", err)
+	}
+	if got, want := updated.Telegram.BotToken, "saved-token"; got != want {
+		t.Fatalf("want telegram token %q got %q", want, got)
+	}
+	if got, want := updated.Telegram.ChatID, int64(777); got != want {
+		t.Fatalf("want telegram chat id %d got %d", want, got)
+	}
+	if strings.Contains(errOut.String(), "Bot token:") {
+		t.Fatalf("did not expect token prompt when token already exists, got: %q", errOut.String())
+	}
+}
+
+func TestRunSetupRejectsWhatsAppProvider(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	input := strings.NewReader("")
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	err := runSetup([]string{"--provider", "whatsapp"}, IO{In: input, Out: &out, ErrOut: &errOut})
+	if err == nil {
+		t.Fatalf("expected error for disabled whatsapp provider")
+	}
+	if !strings.Contains(err.Error(), "temporarily disabled") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunSetupNonInteractiveChecklistTelegram(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	if err := runSetup([]string{"--non-interactive", "--provider", "telegram"}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	}); err != nil {
+		t.Fatalf("runSetup returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "Setup checklist (non-interactive)") {
+		t.Fatalf("expected checklist header, got: %q", got)
+	}
+	if !strings.Contains(got, "consult-human config set telegram.bot_token") {
+		t.Fatalf("expected telegram token command, got: %q", got)
+	}
+	if !strings.Contains(got, "consult-human setup --provider telegram") {
+		t.Fatalf("expected telegram link command, got: %q", got)
+	}
+	if !strings.Contains(got, "consult-human config set default-provider telegram") {
+		t.Fatalf("expected default-provider command, got: %q", got)
+	}
+}
+
+func TestRunSetupNonInteractiveRejectsWhatsAppProvider(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	err := runSetup([]string{"--non-interactive", "--provider", "whatsapp"}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	})
+	if err == nil {
+		t.Fatalf("expected error for disabled whatsapp provider")
+	}
+	if !strings.Contains(err.Error(), "temporarily disabled") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunSetupNonInteractiveShowsConfiguredProviderStatus(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	cfg := config.Default()
+	cfg.Telegram.BotToken = "existing-token"
+	cfg.Telegram.ChatID = 111
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("config.Save returned error: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	if err := runSetup([]string{"--non-interactive"}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	}); err != nil {
+		t.Fatalf("runSetup returned error: %v", err)
+	}
+
+	got := out.String()
+	if !strings.Contains(got, "Telegram (already set up):") {
+		t.Fatalf("expected configured telegram status, got: %q", got)
+	}
+	if !strings.Contains(got, "config reset --provider telegram") {
+		t.Fatalf("expected telegram reset guidance, got: %q", got)
+	}
+	if !strings.Contains(got, "WhatsApp (temporarily disabled):") {
+		t.Fatalf("expected whatsapp deferred note, got: %q", got)
+	}
+}
+
+func TestRunSetupNonInteractiveRejectsConfiguredProvider(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	cfg := config.Default()
+	cfg.Telegram.BotToken = "existing-token"
+	cfg.Telegram.ChatID = 111
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("config.Save returned error: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+
+	err := runSetup([]string{"--non-interactive", "--provider", "telegram"}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	})
+	if err == nil {
+		t.Fatalf("expected error for already configured provider")
+	}
+	if !strings.Contains(err.Error(), "config reset --provider telegram") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestWaitForTelegramStartWithBaseURL(t *testing.T) {
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/getUpdates" {
+			http.NotFound(w, r)
+			return
+		}
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		if calls == 1 {
+			_, _ = io.WriteString(w, `{"ok":true,"result":[{"update_id":1,"message":{"text":"/help","chat":{"id":123}}}]}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"ok":true,"result":[{"update_id":2,"message":{"text":"/start","chat":{"id":456}}}]}`)
+	}))
+	defer srv.Close()
+
+	var out bytes.Buffer
+	chatID, err := waitForTelegramStartWithBaseURL(srv.URL, 2*time.Second, &out)
+	if err != nil {
+		t.Fatalf("waitForTelegramStartWithBaseURL returned error: %v", err)
+	}
+	if chatID != 456 {
+		t.Fatalf("expected chatID 456, got %d", chatID)
+	}
+}
+
+func TestWaitForTelegramStartWithBaseURLTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"ok":true,"result":[]}`)
+	}))
+	defer srv.Close()
+
+	var out bytes.Buffer
+	_, err := waitForTelegramStartWithBaseURL(srv.URL, 120*time.Millisecond, &out)
+	if err == nil {
+		t.Fatalf("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "timed out waiting for /start") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

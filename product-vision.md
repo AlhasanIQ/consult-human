@@ -1,37 +1,66 @@
-# Product Vision
+# Product Vision (Draft)
 
 ## The Problem
 
-AI coding agents (Claude Code, GPT Codex) are increasingly capable of working autonomously on complex tasks. Developers grant them full permissions and let them run — but this creates a supervision gap:
+AI coding agents are increasingly autonomous, but supervision still depends on the developer being physically at a terminal. That creates avoidable stalls and bad assumptions:
 
-- **Agents assume answers** when they hit ambiguous decisions, leading to wasted work or wrong directions.
-- **Terminal-bound interaction** means the developer must sit at their computer to answer agent questions.
-- **Permission prompts block** the agent entirely if the developer steps away.
+- Agents hit ambiguous decisions and guess.
+- Developers step away (walk around the house, grab food, smoke break, commute moments) and the agent blocks.
+- Terminal-only interaction turns short breaks into lost parallel work time.
 
-Developers want the productivity of autonomous agents with the safety of human oversight — without being chained to their desk.
+Developers want high-autonomy execution and fast human steering, without being desk-bound.
 
 ## The Solution
 
-**consult-human** is a CLI relay between AI agents and humans via messaging apps.
+`consult-human` is a CLI bridge between agents and a developer's phone messaging apps.
 
-When an agent needs input, it runs `consult-human ask "Should I refactor this into a separate service?"`. The question appears on the developer's phone (Telegram, WhatsApp). They reply. The agent unblocks and continues.
+When an agent needs input, it sends a structured prompt via `consult-human ask`. The human replies from their phone. The CLI returns a machine-parseable answer and the agent continues immediately.
+
+Initial channel focus is Telegram. WhatsApp Web session support is still part of the roadmap, but currently deferred while reliability issues are resolved.
+
+The interaction model supports:
+
+- Open-ended questions
+- Multiple-choice questions
+- Multiple-choice with an `"other"` free-text path
+- Voice-note responses (transcribed) in later phases
+
+## Product Thesis
+
+The best supervision loop is lightweight, mobile, and asynchronous:
+
+- Lightweight enough that agents call it often
+- Mobile enough that humans can respond while moving
+- Asynchronous enough that neither side is forced into a fragile terminal session
+
+If this works, "away from keyboard" no longer means "agent idle."
 
 ## Core Principles
 
-**Agent-first design.** The CLI output, flags, and behavior are optimized for consumption by AI agents, not humans. Stdout carries only the reply. Errors go to stderr. No interactive prompts.
+**Agent-first contract.** Stdout emits answer payloads only. Logs/errors go to stderr. No interactive prompts.
 
-**Messaging-app native.** Meet developers where they already are. Telegram and WhatsApp first — apps people already have open. No custom app to install.
+**Phone-native UX.** Use messaging apps developers already check constantly. No custom mobile app required.
 
-**Zero infrastructure.** No server to deploy. The CLI talks directly to messaging APIs. Config is a local YAML file. Install with `go install` or brew.
+**Low-ops footprint.** Favor direct provider APIs and local state over always-on backend infrastructure.
 
-**Provider agnostic.** A clean provider interface means adding Slack, Discord, or email is a matter of implementing two methods: `Send` and `Receive`.
+**Provider abstraction.** Keep provider adapters thin so channel strategy can evolve without reworking core logic.
 
-## Who Is This For
+**Human clarity over cleverness.** Prompts should be concise, disambiguated, and easy to answer quickly on a lock screen.
 
-- Developers running Claude Code with `--dangerously-skip-permissions` or similar full-access modes
-- Teams using GPT Codex or other autonomous coding agents
-- Anyone who wants to supervise AI agents from their phone while away from their desk
+## Who This Is For
+
+- Developers running high-autonomy coding agents (Claude Code, Codex, and similar)
+- Solo builders who frequently move away from desk but still want tight control
+- Teams that need rapid human approvals/choices without halting agent progress
+
+## Critical Use Cases
+
+- Architecture fork: choose one of several implementation paths
+- Risky operation confirmation: migrations, deletes, force-pushes, credential changes
+- Product choice input: wording, UX options, acceptance criteria
+- Unclear requirement clarification: "What should happen in edge case X?"
+- On-the-go supervision: respond from phone while not at workstation
 
 ## What Success Looks Like
 
-A developer kicks off a complex refactoring task with Claude Code, walks to get coffee, and gets a Telegram message: *"The auth module has 3 circular dependencies. Should I (a) break them by extracting a shared types package, or (b) inline the shared code? Reply a or b."* They reply "a", and by the time they're back, the refactor is done — correctly.
+A developer starts a long refactor, leaves the desk, gets a phone message with a multiple-choice decision, taps a response, and returns later to completed work aligned with their intent instead of agent assumptions.
