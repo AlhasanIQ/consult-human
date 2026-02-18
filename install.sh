@@ -126,7 +126,7 @@ verify_checksum() {
   local checksums="$2"
   local archive_name expected actual
   archive_name="$(basename "$archive")"
-  expected="$(grep -E "([[:space:]]|\\*)${archive_name}\$" "$checksums" | awk '{print $1}' | tail -n1)"
+  expected="$(awk -v name="$archive_name" '$2 == name || $2 == "*" name { print $1 }' "$checksums" | tail -n1)"
   [[ -n "$expected" ]] || die "checksum for ${archive_name} not found in checksums.txt"
   actual="$(sha256_file "$archive")"
   [[ "$actual" == "$expected" ]] || die "checksum mismatch for ${archive_name}"

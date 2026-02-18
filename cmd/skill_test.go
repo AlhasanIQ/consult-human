@@ -360,7 +360,7 @@ func TestRunSkillInstallWritesCodexReminderFile(t *testing.T) {
 	if !strings.Contains(content, consultHumanReminderStart) || !strings.Contains(content, consultHumanReminderEnd) {
 		t.Fatalf("expected reminder block markers in AGENTS.md, got: %q", content)
 	}
-	if !strings.Contains(content, "consult-human ask") {
+	if !strings.Contains(content, "IMPORTANT") || !strings.Contains(content, "consult-human") {
 		t.Fatalf("expected consult-human reminder content in AGENTS.md, got: %q", content)
 	}
 }
@@ -431,5 +431,28 @@ func TestRunSkillInstallWritesAgentsReminderWhenAgentsDirExists(t *testing.T) {
 	content := string(b)
 	if !strings.Contains(content, consultHumanReminderStart) || !strings.Contains(content, consultHumanReminderEnd) {
 		t.Fatalf("expected reminder block markers in agents AGENTS.md, got: %q", content)
+	}
+}
+
+func TestEnsureConsultHumanReminderPreservesExistingMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "AGENTS.md")
+	if err := os.WriteFile(path, []byte("existing"), 0o600); err != nil {
+		t.Fatalf("write existing file: %v", err)
+	}
+
+	changed, err := ensureConsultHumanReminder(path)
+	if err != nil {
+		t.Fatalf("ensureConsultHumanReminder returned error: %v", err)
+	}
+	if !changed {
+		t.Fatalf("expected reminder insertion to change file")
+	}
+
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		t.Fatalf("stat updated reminder file: %v", statErr)
+	}
+	if got, want := info.Mode().Perm(), os.FileMode(0o600); got != want {
+		t.Fatalf("expected mode %o, got %o", want, got)
 	}
 }
