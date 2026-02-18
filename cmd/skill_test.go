@@ -11,6 +11,15 @@ import (
 	"github.com/AlhasanIQ/consult-human/config"
 )
 
+func init() {
+	repoSkillPath := filepath.Join("..", "SKILL.md")
+	repoSkillBytes, err := os.ReadFile(repoSkillPath)
+	if err != nil {
+		panic(err)
+	}
+	SetEmbeddedSkillTemplate(repoSkillBytes)
+}
+
 func TestRunSkillInstallClaudeCopy(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -257,18 +266,6 @@ func TestRunSkillInstallDefaultSourcePathInConfigDir(t *testing.T) {
 	}
 	if filepath.Clean(linkTarget) != filepath.Clean(managedSourcePath) {
 		t.Fatalf("expected symlink target %s, got %s", managedSourcePath, linkTarget)
-	}
-}
-
-func TestEmbeddedSkillTemplateMatchesRootSkillDoc(t *testing.T) {
-	repoSkillPath := filepath.Join("..", "SKILL.md")
-	repoSkillBytes, err := os.ReadFile(repoSkillPath)
-	if err != nil {
-		t.Fatalf("read repo SKILL.md: %v", err)
-	}
-
-	if !bytes.Equal(bytes.TrimSpace(repoSkillBytes), bytes.TrimSpace(skillTemplateEmbedded)) {
-		t.Fatalf("cmd/skill_template.md is out of sync with SKILL.md; update cmd/skill_template.md")
 	}
 }
 

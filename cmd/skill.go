@@ -30,6 +30,18 @@ const (
 	consultHumanReminderBody  = "## IMPORTANT: Never Forget Human Consultation\nNever forget: before any high-leverage decision, risky or destructive opearation, side-effecting operation, tech-debr inducing design/desision or whenever you are unsure, consult the human with `/consult-human` skill before proceeding. Always check the `/consult-human` skill before consulting.\nWhenever you want to ask/discuss/talk to the human (user), use this skill. Whenever you are unsure about next steps, use this skill."
 )
 
+var skillTemplateEmbedded []byte
+
+// SetEmbeddedSkillTemplate sets the runtime-managed skill template bytes.
+// This is initialized by main via //go:embed SKILL.md.
+func SetEmbeddedSkillTemplate(b []byte) {
+	if len(b) == 0 {
+		skillTemplateEmbedded = nil
+		return
+	}
+	skillTemplateEmbedded = append([]byte(nil), b...)
+}
+
 func runSkill(args []string, io IO) error {
 	if len(args) == 0 {
 		printSkillUsage(io.ErrOut)
