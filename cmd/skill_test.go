@@ -294,3 +294,142 @@ func TestNormalizeSkillTargetAliases(t *testing.T) {
 		}
 	}
 }
+
+func TestRunSkillInstallWritesClaudeReminderFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	sourceDir := t.TempDir()
+	sourcePath := filepath.Join(sourceDir, "SKILL.md")
+	if err := os.WriteFile(sourcePath, []byte("sample"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	err := runSkill([]string{"install", "--target", "claude", "--source", sourcePath}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	})
+	if err != nil {
+		t.Fatalf("runSkill install returned error: %v", err)
+	}
+
+	claudePath := filepath.Join(home, ".claude", "CLAUDE.md")
+	b, readErr := os.ReadFile(claudePath)
+	if readErr != nil {
+		t.Fatalf("read claude reminder file: %v", readErr)
+	}
+	content := string(b)
+	if !strings.Contains(content, consultHumanReminderStart) || !strings.Contains(content, consultHumanReminderEnd) {
+		t.Fatalf("expected reminder block markers in CLAUDE.md, got: %q", content)
+	}
+	if !strings.Contains(content, "Never forget") {
+		t.Fatalf("expected reminder content in CLAUDE.md, got: %q", content)
+	}
+}
+
+func TestRunSkillInstallWritesCodexReminderFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	sourceDir := t.TempDir()
+	sourcePath := filepath.Join(sourceDir, "SKILL.md")
+	if err := os.WriteFile(sourcePath, []byte("sample"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	err := runSkill([]string{"install", "--target", "codex", "--source", sourcePath}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	})
+	if err != nil {
+		t.Fatalf("runSkill install returned error: %v", err)
+	}
+
+	codexPath := filepath.Join(home, ".codex", "AGENTS.md")
+	b, readErr := os.ReadFile(codexPath)
+	if readErr != nil {
+		t.Fatalf("read codex reminder file: %v", readErr)
+	}
+	content := string(b)
+	if !strings.Contains(content, consultHumanReminderStart) || !strings.Contains(content, consultHumanReminderEnd) {
+		t.Fatalf("expected reminder block markers in AGENTS.md, got: %q", content)
+	}
+	if !strings.Contains(content, "consult-human ask") {
+		t.Fatalf("expected consult-human reminder content in AGENTS.md, got: %q", content)
+	}
+}
+
+func TestRunSkillInstallReminderIdempotent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	sourceDir := t.TempDir()
+	sourcePath := filepath.Join(sourceDir, "SKILL.md")
+	if err := os.WriteFile(sourcePath, []byte("sample"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	for i := 0; i < 2; i++ {
+		err := runSkill([]string{"install", "--target", "codex", "--source", sourcePath}, IO{
+			In:     strings.NewReader(""),
+			Out:    &out,
+			ErrOut: &errOut,
+		})
+		if err != nil {
+			t.Fatalf("runSkill install returned error on iteration %d: %v", i, err)
+		}
+	}
+
+	codexPath := filepath.Join(home, ".codex", "AGENTS.md")
+	b, readErr := os.ReadFile(codexPath)
+	if readErr != nil {
+		t.Fatalf("read codex reminder file: %v", readErr)
+	}
+	content := string(b)
+	if count := strings.Count(content, consultHumanReminderStart); count != 1 {
+		t.Fatalf("expected one reminder block, found %d in content: %q", count, content)
+	}
+}
+
+func TestRunSkillInstallWritesAgentsReminderWhenAgentsDirExists(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".agents"), 0o755); err != nil {
+		t.Fatalf("mkdir .agents: %v", err)
+	}
+
+	sourceDir := t.TempDir()
+	sourcePath := filepath.Join(sourceDir, "SKILL.md")
+	if err := os.WriteFile(sourcePath, []byte("sample"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	err := runSkill([]string{"install", "--target", "claude", "--source", sourcePath}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	})
+	if err != nil {
+		t.Fatalf("runSkill install returned error: %v", err)
+	}
+
+	agentsPath := filepath.Join(home, ".agents", "AGENTS.md")
+	b, readErr := os.ReadFile(agentsPath)
+	if readErr != nil {
+		t.Fatalf("read agents reminder file: %v", readErr)
+	}
+	content := string(b)
+	if !strings.Contains(content, consultHumanReminderStart) || !strings.Contains(content, consultHumanReminderEnd) {
+		t.Fatalf("expected reminder block markers in agents AGENTS.md, got: %q", content)
+	}
+}

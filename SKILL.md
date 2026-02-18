@@ -184,6 +184,11 @@ Defaults:
 - managed source is refreshed from the binary’s embedded skill template when it changes.
 - install mode defaults to symlink.
 - `consult-human storage clear` (all scope) and `consult-human config reset` delete this managed skill file.
+- `skill install` also appends/updates an IMPORTANT consult-human reminder block in runtime instruction files:
+  - Claude: `<base>/.claude/CLAUDE.md`
+  - Codex: `<base>/.codex/AGENTS.md`
+  - Agents (when present): `<base>/.agents/AGENTS.md`
+  - `<base>` is home for global install, or `--repo` path for repo-scoped install.
 
 Flags:
 - `skill install --target <claude|codex|both>`: choose runtime destination(s); default is `both`.

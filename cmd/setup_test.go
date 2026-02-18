@@ -322,8 +322,17 @@ func TestRunSetupNonInteractiveChecklistTelegram(t *testing.T) {
 	if !strings.Contains(got, "consult-human skill install --target claude") {
 		t.Fatalf("expected skill install command, got: %q", got)
 	}
-	if !strings.Contains(got, "Final step: install skill files for agent runtimes (required):") {
+	if !strings.Contains(got, "Final step: install skill files for agent runtimes, and a reminder in CLAUDE.md/AGENTS.md (required):") {
 		t.Fatalf("expected required skill-install final step, got: %q", got)
+	}
+	if !strings.Contains(got, "Ask your human whether to install globally or locally (repo-only).") {
+		t.Fatalf("expected ask-human scope guidance, got: %q", got)
+	}
+	if !strings.Contains(got, "Global install (all repos on this machine):") {
+		t.Fatalf("expected global install heading, got: %q", got)
+	}
+	if !strings.Contains(got, "Local install (repo-only):") {
+		t.Fatalf("expected local install heading, got: %q", got)
 	}
 }
 

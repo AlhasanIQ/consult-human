@@ -28,13 +28,13 @@ CGO_ENABLED=0 GOFLAGS='-trimpath -mod=readonly -buildvcs=true' \
 
 ## Install (Single Command)
 
-Install latest release, then run setup interactively:
+**Recommended:** Install latest release, then run setup interactively:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/AlhasanIQ/consult-human/main/install.sh)
 ```
 
-Install latest release, then run setup in non-interactive mode:
+Install latest release, then run setup in non-interactive mode (ie tell your agent to set it up and give it the command):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/AlhasanIQ/consult-human/main/install.sh | bash -s -- --setup-mode non-interactive
@@ -113,6 +113,11 @@ Use `--keep-storage` if you only want to reset config keys.
 - managed source is refreshed from the binary’s embedded skill template when it changes
 - install mode defaults to symlink (`--link=true`)
 - `consult-human storage clear` (all scope) and `consult-human config reset` delete this managed skill file
+- also appends/updates an IMPORTANT consult-human reminder block in agent instruction files:
+  - Claude: `<base>/.claude/CLAUDE.md`
+  - Codex: `<base>/.codex/AGENTS.md`
+  - Agents (when present): `<base>/.agents/AGENTS.md`
+  - where `<base>` is home for global install, or `--repo` path for repo-scoped install
 
 Interactive `setup` behavior for skill install:
 

@@ -160,11 +160,16 @@ func runSetupNonInteractive(w io.Writer, cfg config.Config, selected []string, s
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Verification: run `consult-human config show`.")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Final step: install skill files for agent runtimes (required):")
-	fmt.Fprintln(w, "  consult-human skill install --target claude")
-	fmt.Fprintln(w, "  consult-human skill install --target codex")
-	fmt.Fprintln(w, "  consult-human skill install --target both")
-	fmt.Fprintln(w, "  consult-human skill install --target claude --repo /path/to/repo")
+	fmt.Fprintln(w, "Final step: install skill files for agent runtimes, and a reminder in CLAUDE.md/AGENTS.md (required):")
+	fmt.Fprintln(w, "  Ask your human whether to install globally or locally (repo-only).")
+	fmt.Fprintln(w, "  Global install (all repos on this machine):")
+	fmt.Fprintln(w, "    consult-human skill install --target claude")
+	fmt.Fprintln(w, "    consult-human skill install --target codex")
+	fmt.Fprintln(w, "    consult-human skill install --target both")
+	fmt.Fprintln(w, "  Local install (repo-only):")
+	fmt.Fprintln(w, "    consult-human skill install --target claude --repo /path/to/repo")
+	fmt.Fprintln(w, "    consult-human skill install --target codex --repo /path/to/repo")
+	fmt.Fprintln(w, "    consult-human skill install --target both --repo /path/to/repo")
 	return nil
 }
 

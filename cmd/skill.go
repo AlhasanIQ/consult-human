@@ -21,6 +21,13 @@ const (
 	skillTargetBoth   = "both"
 
 	skillFileName = "SKILL.md"
+
+	claudeInstructionsFileName = "CLAUDE.md"
+	agentsInstructionsFileName = "AGENTS.md"
+
+	consultHumanReminderStart = "<!-- consult-human reminder:start -->"
+	consultHumanReminderEnd   = "<!-- consult-human reminder:end -->"
+	consultHumanReminderBody  = "## IMPORTANT: Never Forget Human Consultation\nNever forget: before any high-leverage decision, risky or destructive command, side-effecting operation, or whenever you are unsure, consult the human with `consult-human ask \"<question>\"` before proceeding."
 )
 
 func runSkill(args []string, io IO) error {
@@ -120,6 +127,22 @@ func runSkillInstall(args []string, io IO) error {
 	for _, note := range notes {
 		fmt.Fprintf(io.ErrOut, "Note: %s\n", note)
 	}
+
+	reminderTargets, err := resolveInstructionReminderTargets(target, repoRoot)
+	if err != nil {
+		return err
+	}
+	for _, reminderFile := range reminderTargets {
+		changed, err := ensureConsultHumanReminder(reminderFile)
+		if err != nil {
+			return fmt.Errorf("update reminder in %s: %w", reminderFile, err)
+		}
+		if changed {
+			fmt.Fprintf(io.ErrOut, "Updated agent reminder in %s\n", reminderFile)
+		} else {
+			fmt.Fprintf(io.ErrOut, "Agent reminder already present in %s\n", reminderFile)
+		}
+	}
 	return nil
 }
 
@@ -194,6 +217,99 @@ func resolveSkillDestinations(target string, repoRoot string) ([]string, []strin
 	}
 
 	return destinations, notes, nil
+}
+
+func resolveInstructionReminderTargets(target string, repoRoot string) ([]string, error) {
+	baseRoot := repoRoot
+	if baseRoot == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		baseRoot = home
+	}
+
+	added := map[string]struct{}{}
+	targets := make([]string, 0, 3)
+	add := func(path string) {
+		if path == "" {
+			return
+		}
+		if _, ok := added[path]; ok {
+			return
+		}
+		added[path] = struct{}{}
+		targets = append(targets, path)
+	}
+
+	if target == skillTargetClaude || target == skillTargetBoth {
+		add(filepath.Join(baseRoot, ".claude", claudeInstructionsFileName))
+
+		agentsRoot := filepath.Join(baseRoot, ".agents")
+		if info, statErr := os.Stat(agentsRoot); statErr == nil && info.IsDir() {
+			add(filepath.Join(agentsRoot, agentsInstructionsFileName))
+		}
+	}
+	if target == skillTargetCodex || target == skillTargetBoth {
+		add(filepath.Join(baseRoot, ".codex", agentsInstructionsFileName))
+	}
+
+	return targets, nil
+}
+
+func ensureConsultHumanReminder(path string) (bool, error) {
+	if strings.TrimSpace(path) == "" {
+		return false, fmt.Errorf("empty reminder path")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+
+	currentBytes, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	current := string(currentBytes)
+	desiredBlock := strings.Join([]string{
+		consultHumanReminderStart,
+		consultHumanReminderBody,
+		consultHumanReminderEnd,
+	}, "\n")
+
+	updated, changed := upsertConsultHumanReminderBlock(current, desiredBlock)
+	if !changed {
+		return false, nil
+	}
+
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(updated), 0o644); err != nil {
+		return false, err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return false, err
+	}
+	return true, nil
+}
+
+func upsertConsultHumanReminderBlock(content string, desiredBlock string) (string, bool) {
+	start := strings.Index(content, consultHumanReminderStart)
+	end := strings.Index(content, consultHumanReminderEnd)
+	if start >= 0 && end >= start {
+		end += len(consultHumanReminderEnd)
+		existing := content[start:end]
+		if existing == desiredBlock {
+			return content, false
+		}
+		updated := content[:start] + desiredBlock + content[end:]
+		return updated, true
+	}
+
+	trimmed := strings.TrimRight(content, "\n")
+	if strings.TrimSpace(trimmed) == "" {
+		return desiredBlock + "\n", true
+	}
+	return trimmed + "\n\n" + desiredBlock + "\n", true
 }
 
 func installSkillFile(destinationDir string, sourceBytes []byte, sourcePath string, linkMode bool) (string, error) {
