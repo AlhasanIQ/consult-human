@@ -163,6 +163,10 @@ func TestRunConfigResetDeletesStorageByDefault(t *testing.T) {
 
 	tgPath := filepath.Join(t.TempDir(), "telegram-pending.json")
 	t.Setenv(config.EnvTelegramPendingStorePath, tgPath)
+	managedSkillPath, err := defaultManagedSkillSourcePath()
+	if err != nil {
+		t.Fatalf("defaultManagedSkillSourcePath: %v", err)
+	}
 
 	cfg := config.Default()
 	cfg.Telegram.BotToken = "tg-token"
@@ -173,10 +177,16 @@ func TestRunConfigResetDeletesStorageByDefault(t *testing.T) {
 	if err := os.WriteFile(tgPath, []byte(`{}`), 0o600); err != nil {
 		t.Fatalf("write telegram pending: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Dir(managedSkillPath), 0o755); err != nil {
+		t.Fatalf("mkdir managed skill dir: %v", err)
+	}
+	if err := os.WriteFile(managedSkillPath, []byte("skill"), 0o600); err != nil {
+		t.Fatalf("write managed skill: %v", err)
+	}
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	err := runConfig([]string{"reset"}, IO{
+	err = runConfig([]string{"reset"}, IO{
 		In:     strings.NewReader(""),
 		Out:    &out,
 		ErrOut: &errOut,
@@ -190,6 +200,9 @@ func TestRunConfigResetDeletesStorageByDefault(t *testing.T) {
 	if _, statErr := os.Stat(tgPath); !os.IsNotExist(statErr) {
 		t.Fatalf("expected telegram pending store to be deleted, stat err: %v", statErr)
 	}
+	if _, statErr := os.Stat(managedSkillPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected managed skill store to be deleted, stat err: %v", statErr)
+	}
 }
 
 func TestRunConfigResetKeepStorage(t *testing.T) {
@@ -200,6 +213,10 @@ func TestRunConfigResetKeepStorage(t *testing.T) {
 
 	tgPath := filepath.Join(t.TempDir(), "telegram-pending.json")
 	t.Setenv(config.EnvTelegramPendingStorePath, tgPath)
+	managedSkillPath, err := defaultManagedSkillSourcePath()
+	if err != nil {
+		t.Fatalf("defaultManagedSkillSourcePath: %v", err)
+	}
 
 	cfg := config.Default()
 	cfg.Telegram.BotToken = "tg-token"
@@ -210,10 +227,16 @@ func TestRunConfigResetKeepStorage(t *testing.T) {
 	if err := os.WriteFile(tgPath, []byte(`{}`), 0o600); err != nil {
 		t.Fatalf("write telegram pending: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Dir(managedSkillPath), 0o755); err != nil {
+		t.Fatalf("mkdir managed skill dir: %v", err)
+	}
+	if err := os.WriteFile(managedSkillPath, []byte("skill"), 0o600); err != nil {
+		t.Fatalf("write managed skill: %v", err)
+	}
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer
-	err := runConfig([]string{"reset", "--keep-storage"}, IO{
+	err = runConfig([]string{"reset", "--keep-storage"}, IO{
 		In:     strings.NewReader(""),
 		Out:    &out,
 		ErrOut: &errOut,
@@ -226,6 +249,9 @@ func TestRunConfigResetKeepStorage(t *testing.T) {
 	}
 	if _, statErr := os.Stat(tgPath); statErr != nil {
 		t.Fatalf("expected telegram pending store to remain, stat err: %v", statErr)
+	}
+	if _, statErr := os.Stat(managedSkillPath); statErr != nil {
+		t.Fatalf("expected managed skill store to remain, stat err: %v", statErr)
 	}
 }
 

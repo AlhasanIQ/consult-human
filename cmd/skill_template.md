@@ -1,15 +1,15 @@
 ---
 name: consult-human
 description: Use when an agent needs a human decision, approval, or clarification. This skill explains how to set up and run consult-human for blocking and non-blocking human consultations, including ask flags, setup flows, config reset behavior, and storage/cache clearing commands. Better ask than assume.
-compatibility: Designed for Claude Code CLI with consult-human installed and available on PATH.
+compatibility: Designed for Claude Code and Codex CLI with consult-human installed and available on PATH.
 ---
 
 # consult-human Skill
 
-Use `consult-human` whenever an agent needs a human decision, approval, or clarification instead of assuming things.
+Use `consult-human` whenever an agent needs a human decision, approval, or clarification.
 
 ## Current CLI Surface
-- When you want to understand the cli spec and you're lost, do `--help`. Its supported universally in the command.
+- When lost, do `--help`. Its supported universally in the command.
 - `consult-human ask [flags] <question>`
 - `consult-human setup [flags]`
 - `consult-human config <path|show|init|set|reset>`
@@ -18,9 +18,7 @@ Use `consult-human` whenever an agent needs a human decision, approval, or clari
 
 ## Setup
 
-- IMPORTANT: If you are running claude code as a VS Code extension, the default `~/.zshrc`/`~/.bashrc` shell profiles are not loaded. Only `~/.zshenv`, `~/.zprofile`, `~/.zlogin` / `~/.bash_login` are sourced. Hence, you need to ensure the `consult-human` binary is added to the PATH env var there. The reason is that Bash Tool in claude code inherits profies from the parent process.
-
-Run `consult-human setup` before the first consultation or when re-linking a provider (ex Telegram).
+Run setup before the first consultation or when re-linking Telegram.
 
 Choose setup mode based on who is doing the setup:
 
@@ -29,12 +27,13 @@ Choose setup mode based on who is doing the setup:
 
 Supported setup flags:
 - `--non-interactive`: prints a list of steps to do the set up, without a TTY. Agent-friendly
-- `--provider telegram`: restrict setup to a specific messaging provider Telegram.
+- `--provider telegram`: restrict setup to Telegram.
 
 ### Interactive Setup (User-Driven, TTY)
 
 1. Run `consult-human setup`.
-2. Follow instructions
+2. Follow instructions, including the required final skill-install target selection (comma-separated: `claude`, `codex`, or `both`).
+3. Complete the required install-scope selection (`global`, `current repo`, or `custom repo path`); setup shows destination paths before installing.
 
 ### Non-Interactive Setup (Agent-Driven, one-shot commands)
 
@@ -102,12 +101,17 @@ The only way to do async/non-blocking consultation is via leveraging the capabil
 If you are Claude Code:
 Execute the `consult-human ask ...` command via your Bash tool, setting the `run_in_background` parameter as true, and `timeout` as 600000 (10 min).
 
+If you are Codex:
+Due to the constraints of your harness, you cant do this. 
+
 ## Practical Notes
 
 - Use `--timeout` for longer waits, for example `--timeout 30m`.
 - If a request times out, send a new `ask` request.
 - Keep prompts concise and explicit for mobile replies.
 - WhatsApp is temporarily disabled; use Telegram for active consultations.
+
+
 
 ## Commands and Flags Reference
 

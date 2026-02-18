@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -26,6 +27,71 @@ func TestParseSetupProviderFlags(t *testing.T) {
 	}
 }
 
+func TestParseSetupSkillTargetSelection(t *testing.T) {
+	got, err := parseSetupSkillTargetSelection("1,2")
+	if err != nil {
+		t.Fatalf("parseSetupSkillTargetSelection returned error: %v", err)
+	}
+	if got != skillTargetBoth {
+		t.Fatalf("expected %q, got %q", skillTargetBoth, got)
+	}
+}
+
+func TestParseSetupSkillTargetSelectionInvalid(t *testing.T) {
+	if _, err := parseSetupSkillTargetSelection("x"); err == nil {
+		t.Fatalf("expected error for invalid selection")
+	}
+}
+
+func TestBuildSetupSkillScopeOptionsDefaultsToRepoWhenAgentDirExists(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".claude"), 0o755); err != nil {
+		t.Fatalf("mkdir .claude: %v", err)
+	}
+
+	origCurrentDirFn := setupCurrentDirFn
+	setupCurrentDirFn = func() (string, error) { return repo, nil }
+	defer func() { setupCurrentDirFn = origCurrentDirFn }()
+
+	opts, defaultToken, err := buildSetupSkillScopeOptions(skillTargetClaude)
+	if err != nil {
+		t.Fatalf("buildSetupSkillScopeOptions: %v", err)
+	}
+	if len(opts) < 2 {
+		t.Fatalf("expected at least global and repo options")
+	}
+	if defaultToken != "repo" {
+		t.Fatalf("expected repo default, got %q", defaultToken)
+	}
+}
+
+func TestFindGitRepoRoot(t *testing.T) {
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	sub := filepath.Join(repo, "a", "b")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
+	}
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir sub: %v", err)
+	}
+
+	got, found, err := findGitRepoRoot(sub)
+	if err != nil {
+		t.Fatalf("findGitRepoRoot: %v", err)
+	}
+	if !found {
+		t.Fatalf("expected repo to be found")
+	}
+	if got != repo {
+		t.Fatalf("expected repo %q got %q", repo, got)
+	}
+}
+
 func TestParseSetupProviderFlagsRejectsInvalid(t *testing.T) {
 	if _, err := parseSetupProviderFlags([]string{"3"}); err == nil {
 		t.Fatalf("expected error for invalid option")
@@ -42,6 +108,17 @@ func TestRunSetupTelegramFlow(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv(config.EnvConfigPath, cfgPath)
 
+	origSkillFn := setupSkillInstallFn
+	defer func() { setupSkillInstallFn = origSkillFn }()
+	var installedTarget string
+	setupSkillInstallFn = func(args []string, io IO) error {
+		if len(args) != 2 || args[0] != "--target" {
+			return fmt.Errorf("unexpected skill args: %#v", args)
+		}
+		installedTarget = args[1]
+		return nil
+	}
+
 	origLinkFn := telegramSetupLinkFn
 	telegramSetupLinkFn = func(token string, timeout time.Duration, w io.Writer) (int64, error) {
 		if token != "test-token" {
@@ -51,7 +128,11 @@ func TestRunSetupTelegramFlow(t *testing.T) {
 	}
 	defer func() { telegramSetupLinkFn = origLinkFn }()
 
-	input := strings.NewReader("test-token\n")
+	origCurrentDirFn := setupCurrentDirFn
+	setupCurrentDirFn = func() (string, error) { return t.TempDir(), nil }
+	defer func() { setupCurrentDirFn = origCurrentDirFn }()
+
+	input := strings.NewReader("test-token\n1\n1\n")
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 
@@ -71,6 +152,9 @@ func TestRunSetupTelegramFlow(t *testing.T) {
 	}
 	if got, want := cfg.Telegram.ChatID, int64(4242); got != want {
 		t.Fatalf("want telegram chat id %d got %d", want, got)
+	}
+	if installedTarget != skillTargetClaude {
+		t.Fatalf("expected skill target %q, got %q", skillTargetClaude, installedTarget)
 	}
 	if strings.Contains(errOut.String(), "Next steps:") {
 		t.Fatalf("did not expect Next steps block in output, got: %q", errOut.String())
@@ -105,6 +189,19 @@ func TestRunSetupTelegramUsesSavedTokenWithoutPrompt(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv(config.EnvConfigPath, cfgPath)
 
+	origCurrentDirFn := setupCurrentDirFn
+	setupCurrentDirFn = func() (string, error) { return t.TempDir(), nil }
+	defer func() { setupCurrentDirFn = origCurrentDirFn }()
+
+	origSkillFn := setupSkillInstallFn
+	defer func() { setupSkillInstallFn = origSkillFn }()
+	setupSkillInstallFn = func(args []string, io IO) error {
+		if len(args) != 2 || args[0] != "--target" || args[1] != skillTargetClaude {
+			return fmt.Errorf("unexpected skill args: %#v", args)
+		}
+		return nil
+	}
+
 	cfg := config.Default()
 	cfg.Telegram.BotToken = "saved-token"
 	if err := config.Save(cfg); err != nil {
@@ -126,7 +223,7 @@ func TestRunSetupTelegramUsesSavedTokenWithoutPrompt(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- runSetup([]string{"--provider", "telegram"}, IO{
-			In:     strings.NewReader(""),
+			In:     strings.NewReader("1\n1\n"),
 			Out:    &out,
 			ErrOut: &errOut,
 		})
@@ -200,6 +297,12 @@ func TestRunSetupNonInteractiveChecklistTelegram(t *testing.T) {
 	}
 	if !strings.Contains(got, "consult-human config set default-provider telegram") {
 		t.Fatalf("expected default-provider command, got: %q", got)
+	}
+	if !strings.Contains(got, "consult-human skill install --target claude") {
+		t.Fatalf("expected skill install command, got: %q", got)
+	}
+	if !strings.Contains(got, "Final step: install skill files for agent runtimes (required):") {
+		t.Fatalf("expected required skill-install final step, got: %q", got)
 	}
 }
 

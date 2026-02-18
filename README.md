@@ -54,14 +54,47 @@ consult-human storage path --provider whatsapp
 
 # interactive first-time setup
 consult-human setup
+# includes required final skill-install target selection (claude/codex/both)
+# and required install-scope selection (global/current repo/custom repo path)
 
 # checklist-only setup plan (non-interactive)
 consult-human setup --non-interactive
 consult-human setup --non-interactive --provider telegram
+
+# install SKILL.md into agent runtimes
+consult-human skill install --target claude
+consult-human skill install --target codex
+consult-human skill install --target both
+# install into a specific repo (project-local skills)
+consult-human skill install --target claude --repo /path/to/repo
+consult-human skill install --target codex --repo /path/to/repo
+# alias:
+consult-human install-skill --target claude
 ```
 
 `config reset` now clears local storage/cache by default.
 Use `--keep-storage` if you only want to reset config keys.
+
+`skill install` defaults:
+
+- source path defaults to `<config-dir>/SKILL.md` where `<config-dir>` is the directory of `consult-human config path`
+- managed source is refreshed from the binary’s embedded skill template when it changes
+- install mode defaults to symlink (`--link=true`)
+- `consult-human storage clear` (all scope) and `consult-human config reset` delete this managed skill file
+
+Interactive `setup` behavior for skill install:
+
+- setup shows the concrete destination path(s) for each install scope
+- global scope installs for all Claude/Codex sessions in this user account on this machine
+- if you are inside a git repo and it has `.claude` or `.agents`, setup defaults scope to current repo
+- setup also offers custom repo path input
+
+`skill install` flags:
+
+- `--target claude|codex|both` (default: `both`)
+- `--repo <path>` to install inside a specific repository instead of user-global directories
+- `--source <path>` to install from a specific local `SKILL.md`
+- `--copy` to copy file contents instead of symlinking
 
 Set provider and credentials:
 

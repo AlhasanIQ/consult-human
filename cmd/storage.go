@@ -117,6 +117,10 @@ func runStoragePath(args []string, io IO) error {
 	if err != nil {
 		return err
 	}
+	skillManagedPath, err := defaultManagedSkillSourcePath()
+	if err != nil {
+		return err
+	}
 	if providerName == setupProviderTelegram || providerName == setupProviderWhatsApp {
 		if providerName == setupProviderTelegram {
 			fmt.Fprintf(io.Out, "pending: %s\n", tgPaths.Pending)
@@ -130,6 +134,7 @@ func runStoragePath(args []string, io IO) error {
 	fmt.Fprintf(io.Out, "telegram.pending: %s\n", tgPaths.Pending)
 	fmt.Fprintf(io.Out, "telegram.inbox: %s\n", tgPaths.Inbox)
 	fmt.Fprintf(io.Out, "whatsapp: %s\n", waPath)
+	fmt.Fprintf(io.Out, "skill.managed: %s\n", skillManagedPath)
 	return nil
 }
 
@@ -190,7 +195,13 @@ func storageTargetsForProvider(cfg config.Config, providerName string) ([]string
 	case storageProviderAll:
 		tg := telegramStorageTargets(tgPaths)
 		wa := whatsAppStorageTargets(waPath)
-		return dedupeNonEmpty(append(tg, wa...)), nil
+		skillManagedPath, err := defaultManagedSkillSourcePath()
+		if err != nil {
+			return nil, err
+		}
+		all := append(tg, wa...)
+		all = append(all, skillManagedPath)
+		return dedupeNonEmpty(all), nil
 	default:
 		return nil, fmt.Errorf("provider must be all, telegram, or whatsapp")
 	}

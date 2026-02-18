@@ -182,6 +182,10 @@ func TestRunStoragePathAll(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EffectiveTelegramInboxStorePath: %v", err)
 	}
+	skillManagedPath, err := defaultManagedSkillSourcePath()
+	if err != nil {
+		t.Fatalf("defaultManagedSkillSourcePath: %v", err)
+	}
 	if !strings.Contains(got, "telegram.pending: "+cfg.Telegram.PendingStorePath) {
 		t.Fatalf("missing telegram path, got: %q", got)
 	}
@@ -190,5 +194,46 @@ func TestRunStoragePathAll(t *testing.T) {
 	}
 	if !strings.Contains(got, "whatsapp: "+cfg.WhatsApp.StorePath) {
 		t.Fatalf("missing whatsapp path, got: %q", got)
+	}
+	if !strings.Contains(got, "skill.managed: "+skillManagedPath) {
+		t.Fatalf("missing managed skill path, got: %q", got)
+	}
+}
+
+func TestRunStorageClearAllRemovesManagedSkill(t *testing.T) {
+	setTestStateHome(t)
+
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	cfg := config.Default()
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("config.Save: %v", err)
+	}
+
+	managedSkillPath, err := defaultManagedSkillSourcePath()
+	if err != nil {
+		t.Fatalf("defaultManagedSkillSourcePath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(managedSkillPath), 0o755); err != nil {
+		t.Fatalf("mkdir managed skill dir: %v", err)
+	}
+	if err := os.WriteFile(managedSkillPath, []byte("skill"), 0o600); err != nil {
+		t.Fatalf("write managed skill: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	err = runStorage([]string{"clear"}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	})
+	if err != nil {
+		t.Fatalf("runStorage clear all: %v", err)
+	}
+
+	if _, statErr := os.Stat(managedSkillPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected managed skill file removed, stat err: %v", statErr)
 	}
 }
