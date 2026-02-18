@@ -90,6 +90,8 @@ consult-human setup
 consult-human setup --non-interactive
 consult-human setup --non-interactive --provider telegram
 # non-interactive mode also auto-ensures shell PATH (no extra prompt)
+# non-interactive chat linking via /start (no prompts)
+consult-human setup --provider telegram --link-chat
 
 # install SKILL.md into agent runtimes
 consult-human skill install --target claude
@@ -126,6 +128,10 @@ Interactive `setup` behavior for skill install:
 - `bash`: prefers existing `~/.bash_profile`, then `~/.bash_login` (fallback creates `~/.bash_login`)
 - prints what file/path was used; no extra command required
 - this is important for Claude Code VS Code extension environments where `~/.zshrc`/`~/.bashrc` may not be loaded
+
+Telegram non-interactive chat linking:
+
+- `consult-human setup --provider telegram --link-chat` waits for `/start`, captures `telegram.chat_id`, and saves config without interactive prompts
 
 `skill install` flags:
 
@@ -252,7 +258,9 @@ go test ./...
   - cross-builds static release binaries for `linux/darwin` and `amd64/arm64`
   - creates deterministic tar archives
   - generates `checksums.txt`
-  - publishes release assets with `gh release create`/`gh release upload`
+- publishes release assets with `gh release create`/`gh release upload`
+
+Note: prerelease tags like `v0.1.0-rc.1` are currently published as normal releases, so installer `latest` may resolve to them.
 
 Release trigger:
 

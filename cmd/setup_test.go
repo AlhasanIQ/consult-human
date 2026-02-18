@@ -313,8 +313,8 @@ func TestRunSetupNonInteractiveChecklistTelegram(t *testing.T) {
 	if !strings.Contains(got, "consult-human config set telegram.bot_token") {
 		t.Fatalf("expected telegram token command, got: %q", got)
 	}
-	if !strings.Contains(got, "consult-human setup --provider telegram") {
-		t.Fatalf("expected telegram link command, got: %q", got)
+	if !strings.Contains(got, "consult-human setup --provider telegram --link-chat") {
+		t.Fatalf("expected telegram non-interactive link command, got: %q", got)
 	}
 	if !strings.Contains(got, "consult-human config set default-provider telegram") {
 		t.Fatalf("expected default-provider command, got: %q", got)
@@ -324,6 +324,69 @@ func TestRunSetupNonInteractiveChecklistTelegram(t *testing.T) {
 	}
 	if !strings.Contains(got, "Final step: install skill files for agent runtimes (required):") {
 		t.Fatalf("expected required skill-install final step, got: %q", got)
+	}
+}
+
+func TestRunSetupLinkChatWithSavedToken(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+	stubSetupEnsureShellPath(t)
+
+	cfg := config.Default()
+	cfg.Telegram.BotToken = "saved-token"
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("config.Save returned error: %v", err)
+	}
+
+	origLinkFn := telegramSetupLinkFn
+	telegramSetupLinkFn = func(token string, timeout time.Duration, w io.Writer) (int64, error) {
+		if token != "saved-token" {
+			return 0, fmt.Errorf("unexpected token: %s", token)
+		}
+		return 999, nil
+	}
+	defer func() { telegramSetupLinkFn = origLinkFn }()
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	if err := runSetup([]string{"--provider", "telegram", "--link-chat"}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	}); err != nil {
+		t.Fatalf("runSetup returned error: %v", err)
+	}
+
+	updated, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load returned error: %v", err)
+	}
+	if got, want := updated.Telegram.ChatID, int64(999); got != want {
+		t.Fatalf("want telegram chat id %d got %d", want, got)
+	}
+}
+
+func TestRunSetupLinkChatRequiresToken(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+	stubSetupEnsureShellPath(t)
+
+	if err := config.Save(config.Default()); err != nil {
+		t.Fatalf("config.Save returned error: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	err := runSetup([]string{"--provider", "telegram", "--link-chat"}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	})
+	if err == nil {
+		t.Fatalf("expected error when token is missing")
+	}
+	if !strings.Contains(err.Error(), "telegram.bot_token is required") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

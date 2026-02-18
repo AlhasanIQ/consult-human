@@ -33,8 +33,10 @@ func runSetup(args []string, io IO) error {
 	fs.Usage = func() { printSetupUsage(io.ErrOut) }
 
 	var nonInteractive bool
+	var linkChat bool
 	var providersRaw stringSliceFlag
 	fs.BoolVar(&nonInteractive, "non-interactive", false, "Print setup checklist instead of prompting")
+	fs.BoolVar(&linkChat, "link-chat", false, "Link Telegram chat by waiting for /start without prompts")
 	fs.Var(&providersRaw, "provider", "Provider to include (telegram). Repeatable.")
 
 	if err := fs.Parse(args); err != nil {
@@ -60,6 +62,10 @@ func runSetup(args []string, io IO) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
+	}
+
+	if linkChat {
+		return runSetupLinkChat(io, cfg, selected, selectedExplicit)
 	}
 
 	if nonInteractive {
@@ -159,6 +165,46 @@ func runSetupNonInteractive(w io.Writer, cfg config.Config, selected []string, s
 	fmt.Fprintln(w, "  consult-human skill install --target codex")
 	fmt.Fprintln(w, "  consult-human skill install --target both")
 	fmt.Fprintln(w, "  consult-human skill install --target claude --repo /path/to/repo")
+	return nil
+}
+
+func runSetupLinkChat(io IO, cfg config.Config, selected []string, selectedExplicit bool) error {
+	if selectedExplicit {
+		if len(selected) != 1 || selected[0] != setupProviderTelegram {
+			return fmt.Errorf("--link-chat currently supports only --provider telegram")
+		}
+	}
+
+	s := newSty(io.ErrOut)
+	s.header("consult-human · telegram link")
+	runSetupShellPathInteractiveStep(s)
+
+	token := strings.TrimSpace(cfg.Telegram.BotToken)
+	if token == "" {
+		return fmt.Errorf("telegram.bot_token is required; run `consult-human config set telegram.bot_token \"<BOT_TOKEN>\"` first")
+	}
+
+	fmt.Fprintln(s.w)
+	fmt.Fprintf(s.w, "  Now send %s to your bot from the chat you want to use.\n\n", s.bold("/start"))
+	sp := s.startSpinner("Waiting for /start message...")
+	chatID, err := telegramSetupLinkFn(token, setupTelegramLinkTimeout, s.w)
+	sp.stop()
+	if err != nil {
+		return fmt.Errorf("could not link Telegram chat: %w", err)
+	}
+
+	cfg.Telegram.ChatID = chatID
+	if err := config.Save(cfg); err != nil {
+		return err
+	}
+
+	configPath, err := config.ConfigPath()
+	if err != nil {
+		return err
+	}
+
+	s.success(fmt.Sprintf("Linked to chat %d", chatID))
+	s.info(s.dim(fmt.Sprintf("Config saved to %s", configPath)))
 	return nil
 }
 
@@ -425,7 +471,7 @@ func writeTelegramChecklist(w io.Writer, alreadySetup bool) {
 	step++
 	fmt.Fprintf(w, "  Step %d: Run `consult-human config set telegram.bot_token \"<BOT_TOKEN>\"`.\n", step)
 	step++
-	fmt.Fprintf(w, "  Step %d: Run `consult-human setup --provider telegram` to link chat via /start.\n", step)
+	fmt.Fprintf(w, "  Step %d: Run `consult-human setup --provider telegram --link-chat` to link chat via /start (non-interactive).\n", step)
 	fmt.Fprintln(w)
 }
 
@@ -444,11 +490,12 @@ func writeWhatsAppDeferredNotice(w io.Writer, cfg config.Config) {
 
 func printSetupUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  consult-human setup [--provider telegram]")
+	fmt.Fprintln(w, "  consult-human setup [--provider telegram] [--link-chat]")
 	fmt.Fprintln(w, "  consult-human setup --non-interactive [--provider telegram]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Interactive first-time setup, or checklist-only mode.")
 	fmt.Fprintln(w, "Both setup modes ensure consult-human binary PATH in your shell login profile.")
+	fmt.Fprintln(w, "`--link-chat` waits for Telegram /start and saves telegram.chat_id without prompts.")
 	fmt.Fprintln(w, "WhatsApp is temporarily disabled.")
 }
 

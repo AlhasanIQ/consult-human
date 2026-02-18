@@ -31,6 +31,7 @@ Choose setup mode based on who is doing the setup:
 Supported setup flags:
 - `--non-interactive`: prints a list of setup steps without TTY prompts, and still auto-ensures shell PATH. Agent-friendly.
 - `--provider telegram`: restrict setup to a specific messaging provider Telegram.
+- `--link-chat`: wait for Telegram `/start` and save `telegram.chat_id` without setup prompts.
 
 ### Interactive Setup (User-Driven, TTY)
 
@@ -44,6 +45,7 @@ This mode still performs shell PATH ensure automatically.
 
 - `consult-human setup --non-interactive`
 - `consult-human setup --non-interactive --provider telegram`
+- `consult-human setup --provider telegram --link-chat`
 
 ### Reset and Reconfigure
 
@@ -52,6 +54,7 @@ This mode still performs shell PATH ensure automatically.
 - Reset Telegram only: `consult-human config reset --provider telegram`
 - Reset Telegram only but keep storage/cache: `consult-human config reset --provider telegram --keep-storage`
 - Re-run Telegram setup: `consult-human setup --provider telegram`
+- Link Telegram chat non-interactively: `consult-human setup --provider telegram --link-chat`
 - Explicitly clear storage/cache: `consult-human storage clear`
 - Show storage/cache paths: `consult-human storage path`
 - Clear Telegram storage/cache only: `consult-human storage clear --provider telegram`
@@ -127,12 +130,13 @@ Flags:
 ### `setup`
 
 Usage:
-- `consult-human setup [--provider telegram]`
+- `consult-human setup [--provider telegram] [--link-chat]`
 - `consult-human setup --non-interactive [--provider telegram]`
 
 Flags:
 - `--non-interactive`: Print checklist instead of prompting, while still auto-ensuring shell PATH.
 - `--provider <name>`: Restrict setup to a provider (currently `telegram`).
+- `--link-chat`: Wait for Telegram `/start` and save chat id without setup prompts.
 
 ### `config`
 

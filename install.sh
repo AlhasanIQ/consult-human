@@ -8,11 +8,11 @@ SETUP_MODE="${CONSULT_HUMAN_SETUP_MODE:-auto}"
 SETUP_PROVIDER="${CONSULT_HUMAN_SETUP_PROVIDER:-}"
 
 log() {
-  printf '[consult-human installer] %s\n' "$*" >&2
+  printf '[consult-human installer] %s\n' "$*"
 }
 
 die() {
-  log "ERROR: $*"
+  printf '[consult-human installer] ERROR: %s\n' "$*" >&2
   exit 1
 }
 
