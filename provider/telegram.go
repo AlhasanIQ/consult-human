@@ -25,6 +25,8 @@ type TelegramProvider struct {
 	baseURL      string
 	client       *http.Client
 	pendingStore *telegramPendingStore
+	inboxStore   *telegramInboxStore
+	pollerLock   *telegramPollerLock
 
 	mu             sync.Mutex
 	nextUpdateID   int64
@@ -45,7 +47,15 @@ func NewTelegram(cfg config.Config) (*TelegramProvider, error) {
 				"4) Run: `consult-human ask ...` then send /start to your bot to link chat",
 		)
 	}
-	pendingStore, err := newTelegramPendingStore()
+	pendingStore, err := newTelegramPendingStore(cfg)
+	if err != nil {
+		return nil, err
+	}
+	inboxStore, err := newTelegramInboxStore(cfg)
+	if err != nil {
+		return nil, err
+	}
+	pollerLock, err := newTelegramPollerLock(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -64,6 +74,8 @@ func NewTelegram(cfg config.Config) (*TelegramProvider, error) {
 		},
 		pending:      make(map[string]int64),
 		pendingStore: pendingStore,
+		inboxStore:   inboxStore,
+		pollerLock:   pollerLock,
 	}, nil
 }
 
@@ -76,11 +88,6 @@ func (p *TelegramProvider) Send(ctx context.Context, req contract.AskRequest) (s
 		return "", err
 	}
 	if err := p.ensureChatID(ctx); err != nil {
-		return "", err
-	}
-
-	// Drain stale updates so Receive only sees replies after this point.
-	if _, err := p.getUpdates(ctx); err != nil && ctx.Err() == nil {
 		return "", err
 	}
 
@@ -110,6 +117,62 @@ func (p *TelegramProvider) Receive(ctx context.Context, requestID string) (contr
 	}
 	defer p.clearPending(requestID)
 
+	if p.inboxStore == nil || p.pollerLock == nil {
+		return p.receiveDirect(ctx, requestID, chatID, targetMessageID)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return contract.Reply{}, ctx.Err()
+		default:
+		}
+
+		pendingCount := p.pendingCountForChat(chatID)
+		claimed, needsReminder, err := p.inboxStore.ClaimForRequest(chatID, targetMessageID, pendingCount)
+		if err != nil {
+			if ctx.Err() != nil {
+				return contract.Reply{}, ctx.Err()
+			}
+			return contract.Reply{}, err
+		}
+		if claimed != nil {
+			reply := contract.Reply{
+				RequestID:         requestID,
+				Text:              strings.TrimSpace(claimed.Text),
+				Raw:               strings.TrimSpace(claimed.Text),
+				ProviderMessageID: fmt.Sprintf("%d", claimed.MessageID),
+				ReceivedAt:        time.Unix(claimed.Date, 0).UTC(),
+			}
+			if strings.TrimSpace(claimed.Username) != "" {
+				reply.From = strings.TrimSpace(claimed.Username)
+			} else {
+				reply.From = strings.TrimSpace(strings.Join([]string{claimed.FirstName, claimed.LastName}, " "))
+			}
+			return reply, nil
+		}
+		if needsReminder && pendingCount > 1 {
+			p.maybeSendThreadingReminder(chatID, pendingCount)
+		}
+
+		polled, err := p.pollInboxOnce(ctx)
+		if err != nil {
+			if ctx.Err() != nil {
+				return contract.Reply{}, ctx.Err()
+			}
+			return contract.Reply{}, err
+		}
+		if !polled {
+			select {
+			case <-ctx.Done():
+				return contract.Reply{}, ctx.Err()
+			case <-time.After(telegramPollerWaitInterval):
+			}
+		}
+	}
+}
+
+func (p *TelegramProvider) receiveDirect(ctx context.Context, requestID string, chatID, targetMessageID int64) (contract.Reply, error) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -148,8 +211,6 @@ func (p *TelegramProvider) Receive(ctx context.Context, requestID string) (contr
 					}
 					continue
 				}
-				// Backward-compatible fallback for a single active request:
-				// only accept messages newer than the original prompt.
 				if msg.MessageID <= targetMessageID {
 					continue
 				}
@@ -169,7 +230,6 @@ func (p *TelegramProvider) Receive(ctx context.Context, requestID string) (contr
 					reply.From = strings.TrimSpace(strings.Join([]string{msg.From.FirstName, msg.From.LastName}, " "))
 				}
 			}
-
 			return reply, nil
 		}
 	}
@@ -393,6 +453,24 @@ func (p *TelegramProvider) sendTelegramMessage(ctx context.Context, chatID int64
 	return tr.Result.MessageID, nil
 }
 
+func (p *TelegramProvider) pollInboxOnce(ctx context.Context) (bool, error) {
+	if p.inboxStore == nil || p.pollerLock == nil {
+		return false, nil
+	}
+	return p.pollerLock.TryWithLock(func() error {
+		offset, err := p.inboxStore.NextOffset()
+		if err != nil {
+			return err
+		}
+		updates, _, err := p.getUpdatesWithOffset(ctx, offset)
+		if err != nil {
+			return err
+		}
+		_, _, err = p.inboxStore.AppendUpdates(updates)
+		return err
+	})
+}
+
 func (p *TelegramProvider) ensureLongPollingReady(ctx context.Context) error {
 	p.mu.Lock()
 	checked := p.pollingChecked
@@ -448,6 +526,23 @@ func (p *TelegramProvider) getUpdates(ctx context.Context) ([]telegramUpdate, er
 	offset := p.nextUpdateID
 	p.mu.Unlock()
 
+	updates, nextOffset, err := p.getUpdatesWithOffset(ctx, offset)
+	if err != nil {
+		return nil, err
+	}
+	if nextOffset > 0 {
+		p.mu.Lock()
+		if nextOffset > p.nextUpdateID {
+			p.nextUpdateID = nextOffset
+		}
+		p.mu.Unlock()
+	}
+	return updates, nil
+}
+
+func (p *TelegramProvider) getUpdatesWithOffset(ctx context.Context, offset int64) ([]telegramUpdate, int64, error) {
+	nextOffset := offset
+
 	timeoutSeconds := int(p.pollInterval / time.Second)
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 1
@@ -465,32 +560,32 @@ func (p *TelegramProvider) getUpdates(ctx context.Context) ([]telegramUpdate, er
 
 	b, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return nil, nextOffset, err
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/getUpdates", bytes.NewReader(b))
 	if err != nil {
-		return nil, err
+		return nil, nextOffset, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		return nil, err
+		return nil, nextOffset, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, fmt.Errorf("telegram getUpdates status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, nextOffset, fmt.Errorf("telegram getUpdates status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var gr telegramGetUpdatesResponse
 	if err := json.NewDecoder(resp.Body).Decode(&gr); err != nil {
-		return nil, err
+		return nil, nextOffset, err
 	}
 	if !gr.OK {
-		return nil, fmt.Errorf("telegram getUpdates failed")
+		return nil, nextOffset, fmt.Errorf("telegram getUpdates failed")
 	}
 
 	var maxUpdate int64
@@ -500,14 +595,12 @@ func (p *TelegramProvider) getUpdates(ctx context.Context) ([]telegramUpdate, er
 		}
 	}
 	if maxUpdate > 0 {
-		p.mu.Lock()
-		if maxUpdate+1 > p.nextUpdateID {
-			p.nextUpdateID = maxUpdate + 1
+		if maxUpdate+1 > nextOffset {
+			nextOffset = maxUpdate + 1
 		}
-		p.mu.Unlock()
 	}
 
-	return gr.Result, nil
+	return gr.Result, nextOffset, nil
 }
 
 type telegramSendResponse struct {

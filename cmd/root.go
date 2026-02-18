@@ -46,6 +46,6 @@ func printRootUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  consult-human ask [flags] <question>")
 	fmt.Fprintln(w, "  consult-human config <path|show|init|set|reset>")
-	fmt.Fprintln(w, "  consult-human storage <clear>")
+	fmt.Fprintln(w, "  consult-human storage <path|clear>")
 	fmt.Fprintln(w, "  consult-human setup [flags]")
 }

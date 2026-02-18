@@ -28,6 +28,7 @@ type TelegramConfig struct {
 	BotToken            string `yaml:"bot_token"`
 	ChatID              int64  `yaml:"chat_id"`
 	PollIntervalSeconds int    `yaml:"poll_interval_seconds"`
+	PendingStorePath    string `yaml:"pending_store_path"`
 }
 
 type WhatsAppConfig struct {
@@ -78,12 +79,38 @@ func DefaultTelegramPendingStorePath() (string, error) {
 	return filepath.Join(stateDir, "telegram-pending.json"), nil
 }
 
+func DefaultTelegramInboxStorePath() (string, error) {
+	stateDir, err := DefaultStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(stateDir, "telegram-inbox.json"), nil
+}
+
 func TelegramPendingStorePath() (string, error) {
 	raw := strings.TrimSpace(os.Getenv(EnvTelegramPendingStorePath))
 	if raw == "" {
 		return DefaultTelegramPendingStorePath()
 	}
 	return ExpandPath(raw)
+}
+
+func EffectiveTelegramPendingStorePath(cfg Config) (string, error) {
+	if raw := strings.TrimSpace(os.Getenv(EnvTelegramPendingStorePath)); raw != "" {
+		return ExpandPath(raw)
+	}
+	if raw := strings.TrimSpace(cfg.Telegram.PendingStorePath); raw != "" {
+		return ExpandPath(raw)
+	}
+	return DefaultTelegramPendingStorePath()
+}
+
+func EffectiveTelegramInboxStorePath(cfg Config) (string, error) {
+	pendingPath, err := EffectiveTelegramPendingStorePath(cfg)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(pendingPath), "telegram-inbox.json"), nil
 }
 
 func DefaultStateDir() (string, error) {
@@ -159,6 +186,16 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Telegram.PollIntervalSeconds <= 0 {
 		cfg.Telegram.PollIntervalSeconds = 2
 	}
+	telegramStorePath := strings.TrimSpace(cfg.Telegram.PendingStorePath)
+	if telegramStorePath == "" {
+		if p, err := DefaultTelegramPendingStorePath(); err == nil {
+			cfg.Telegram.PendingStorePath = p
+		}
+	} else if p, err := ExpandPath(telegramStorePath); err == nil {
+		cfg.Telegram.PendingStorePath = p
+	} else {
+		cfg.Telegram.PendingStorePath = telegramStorePath
+	}
 	storePath := strings.TrimSpace(cfg.WhatsApp.StorePath)
 	if storePath == "" {
 		if p, err := DefaultWhatsAppStorePath(); err == nil {
@@ -219,6 +256,12 @@ func Set(cfg *Config, key string, value string) error {
 			return fmt.Errorf("telegram.poll_interval_seconds must be a positive integer")
 		}
 		cfg.Telegram.PollIntervalSeconds = n
+	case "telegram.pending_store_path", "telegram.store_path":
+		expanded, err := ExpandPath(v)
+		if err != nil {
+			return err
+		}
+		cfg.Telegram.PendingStorePath = expanded
 	case "whatsapp.recipient":
 		cfg.WhatsApp.Recipient = v
 	case "whatsapp.store_path":

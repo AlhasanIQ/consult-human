@@ -38,8 +38,8 @@ type telegramPendingStore struct {
 
 var telegramLocalHostname = loadTelegramLocalHostname()
 
-func newTelegramPendingStore() (*telegramPendingStore, error) {
-	raw, err := config.TelegramPendingStorePath()
+func newTelegramPendingStore(cfg config.Config) (*telegramPendingStore, error) {
+	raw, err := config.EffectiveTelegramPendingStorePath(cfg)
 	if err != nil {
 		return nil, err
 	}

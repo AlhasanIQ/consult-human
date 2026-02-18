@@ -1,3 +1,9 @@
+---
+name: consult-human
+description: Use when an agent needs a human decision, approval, or clarification. This skill explains how to set up and run consult-human for blocking and non-blocking human consultations, including ask flags, setup flows, config reset behavior, and storage/cache clearing commands. Better ask than assume.
+compatibility: Designed for Claude Code and Codex CLI with consult-human installed and available on PATH.
+---
+
 # consult-human Skill
 
 Use `consult-human` whenever an agent needs a human decision, approval, or clarification.
@@ -7,7 +13,7 @@ Use `consult-human` whenever an agent needs a human decision, approval, or clari
 - `consult-human ask [flags] <question>`
 - `consult-human setup [flags]`
 - `consult-human config <path|show|init|set|reset>`
-- `consult-human storage <clear>`
+- `consult-human storage <path|clear>`
 
 ## Setup
 
@@ -42,7 +48,9 @@ Use this mode when you want explicit steps without TTY or terminal interactivity
 - Reset Telegram only but keep storage/cache: `consult-human config reset --provider telegram --keep-storage`
 - Re-run Telegram setup: `consult-human setup --provider telegram`
 - Explicitly clear storage/cache: `consult-human storage clear`
+- Show storage/cache paths: `consult-human storage path`
 - Clear Telegram storage/cache only: `consult-human storage clear --provider telegram`
+- Show Telegram storage/cache path only: `consult-human storage path --provider telegram`
 
 ## The Ask command
 
@@ -142,14 +150,18 @@ Supported keys for `config set`:
 - `telegram.bot_token`
 - `telegram.chat_id`
 - `telegram.poll_interval_seconds`
+- `telegram.pending_store_path` (alias: `telegram.store_path`)
 - `whatsapp.recipient`
 - `whatsapp.store_path`
 
 ### `storage`
 
 Usage:
+- `consult-human storage path`
+- `consult-human storage path --provider <all|telegram|whatsapp>`
 - `consult-human storage clear`
 - `consult-human storage clear --provider <all|telegram|whatsapp>`
 
 Flags:
+- `storage path --provider <all|telegram|whatsapp>`: restrict path output scope.
 - `storage clear --provider <all|telegram|whatsapp>`: restrict storage clearing scope.

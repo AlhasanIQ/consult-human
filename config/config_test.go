@@ -110,3 +110,38 @@ func TestDefaultTelegramPendingStorePathUsesStateHome(t *testing.T) {
 		t.Fatalf("want %q got %q", want, got)
 	}
 }
+
+func TestSetTelegramPendingStorePathAlias(t *testing.T) {
+	cfg := Default()
+	if err := Set(&cfg, "telegram.store_path", "~/consult-human/tg-pending.json"); err != nil {
+		t.Fatalf("set failed: %v", err)
+	}
+	if strings.HasPrefix(cfg.Telegram.PendingStorePath, "~") {
+		t.Fatalf("expected expanded path, got %q", cfg.Telegram.PendingStorePath)
+	}
+}
+
+func TestEffectiveTelegramPendingStorePathUsesConfigWhenEnvMissing(t *testing.T) {
+	cfg := Default()
+	cfg.Telegram.PendingStorePath = "/tmp/custom-tg-pending.json"
+	got, err := EffectiveTelegramPendingStorePath(cfg)
+	if err != nil {
+		t.Fatalf("EffectiveTelegramPendingStorePath: %v", err)
+	}
+	if got != "/tmp/custom-tg-pending.json" {
+		t.Fatalf("want %q got %q", "/tmp/custom-tg-pending.json", got)
+	}
+}
+
+func TestEffectiveTelegramPendingStorePathEnvOverridesConfig(t *testing.T) {
+	t.Setenv(EnvTelegramPendingStorePath, "/tmp/env-tg-pending.json")
+	cfg := Default()
+	cfg.Telegram.PendingStorePath = "/tmp/config-tg-pending.json"
+	got, err := EffectiveTelegramPendingStorePath(cfg)
+	if err != nil {
+		t.Fatalf("EffectiveTelegramPendingStorePath: %v", err)
+	}
+	if got != "/tmp/env-tg-pending.json" {
+		t.Fatalf("want %q got %q", "/tmp/env-tg-pending.json", got)
+	}
+}

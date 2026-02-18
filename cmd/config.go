@@ -103,6 +103,7 @@ func printConfigUsage(w io.Writer) {
 	fmt.Fprintln(w, "  telegram.bot_token")
 	fmt.Fprintln(w, "  telegram.chat_id")
 	fmt.Fprintln(w, "  telegram.poll_interval_seconds")
+	fmt.Fprintln(w, "  telegram.pending_store_path (alias: telegram.store_path)")
 	fmt.Fprintln(w, "  whatsapp.recipient")
 	fmt.Fprintln(w, "  whatsapp.store_path")
 	fmt.Fprintln(w, "")

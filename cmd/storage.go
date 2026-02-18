@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/AlhasanIQ/consult-human/config"
@@ -15,6 +16,12 @@ const storageProviderAll = "all"
 type storageClearReport struct {
 	Removed []string
 	Missing []string
+}
+
+type telegramStoragePaths struct {
+	Pending    string
+	Inbox      string
+	PollerLock string
 }
 
 func runStorage(args []string, io IO) error {
@@ -29,6 +36,8 @@ func runStorage(args []string, io IO) error {
 	switch sub {
 	case "clear":
 		return runStorageClear(subArgs, io)
+	case "path":
+		return runStoragePath(subArgs, io)
 	case "help", "--help", "-h":
 		printStorageUsage(io.Out)
 		return nil
@@ -40,9 +49,10 @@ func runStorage(args []string, io IO) error {
 
 func printStorageUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  consult-human storage path [--provider all|telegram|whatsapp]")
 	fmt.Fprintln(w, "  consult-human storage clear [--provider all|telegram|whatsapp]")
 	fmt.Fprintln(w, "")
-	fmt.Fprintln(w, "Clears local runtime storage/cache files.")
+	fmt.Fprintln(w, "Shows or clears local runtime storage/cache files.")
 }
 
 func runStorageClear(args []string, io IO) error {
@@ -73,6 +83,53 @@ func runStorageClear(args []string, io IO) error {
 		return err
 	}
 	printStorageClearReport(io.ErrOut, providerName, report)
+	return nil
+}
+
+func runStoragePath(args []string, io IO) error {
+	fs := flag.NewFlagSet("storage path", flag.ContinueOnError)
+	fs.SetOutput(io.ErrOut)
+
+	var providerName string
+	fs.StringVar(&providerName, "provider", storageProviderAll, "Provider scope (all|telegram|whatsapp)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("usage: consult-human storage path [--provider all|telegram|whatsapp]")
+	}
+
+	providerName, err := normalizeStorageProvider(providerName)
+	if err != nil {
+		return err
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	tgPaths, err := effectiveTelegramStoragePaths(cfg)
+	if err != nil {
+		return err
+	}
+	waPath, err := effectiveWhatsAppStorePath(cfg)
+	if err != nil {
+		return err
+	}
+	if providerName == setupProviderTelegram || providerName == setupProviderWhatsApp {
+		if providerName == setupProviderTelegram {
+			fmt.Fprintf(io.Out, "pending: %s\n", tgPaths.Pending)
+			fmt.Fprintf(io.Out, "inbox: %s\n", tgPaths.Inbox)
+		} else {
+			fmt.Fprintln(io.Out, waPath)
+		}
+		return nil
+	}
+
+	fmt.Fprintf(io.Out, "telegram.pending: %s\n", tgPaths.Pending)
+	fmt.Fprintf(io.Out, "telegram.inbox: %s\n", tgPaths.Inbox)
+	fmt.Fprintf(io.Out, "whatsapp: %s\n", waPath)
 	return nil
 }
 
@@ -116,58 +173,80 @@ func clearStorageWithConfig(cfg config.Config, providerName string) (storageClea
 }
 
 func storageTargetsForProvider(cfg config.Config, providerName string) ([]string, error) {
+	tgPaths, err := effectiveTelegramStoragePaths(cfg)
+	if err != nil {
+		return nil, err
+	}
+	waPath, err := effectiveWhatsAppStorePath(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	switch providerName {
 	case setupProviderTelegram:
-		return telegramStorageTargets()
+		return telegramStorageTargets(tgPaths), nil
 	case setupProviderWhatsApp:
-		return whatsAppStorageTargets(cfg)
+		return whatsAppStorageTargets(waPath), nil
 	case storageProviderAll:
-		tg, err := telegramStorageTargets()
-		if err != nil {
-			return nil, err
-		}
-		wa, err := whatsAppStorageTargets(cfg)
-		if err != nil {
-			return nil, err
-		}
+		tg := telegramStorageTargets(tgPaths)
+		wa := whatsAppStorageTargets(waPath)
 		return dedupeNonEmpty(append(tg, wa...)), nil
 	default:
 		return nil, fmt.Errorf("provider must be all, telegram, or whatsapp")
 	}
 }
 
-func telegramStorageTargets() ([]string, error) {
-	path, err := config.TelegramPendingStorePath()
+func effectiveTelegramStoragePaths(cfg config.Config) (telegramStoragePaths, error) {
+	pendingPath, err := config.EffectiveTelegramPendingStorePath(cfg)
 	if err != nil {
-		return nil, err
+		return telegramStoragePaths{}, err
 	}
-	return dedupeNonEmpty([]string{
-		path,
-		path + ".lock",
-		path + ".tmp",
-	}), nil
+	inboxPath, err := config.EffectiveTelegramInboxStorePath(cfg)
+	if err != nil {
+		return telegramStoragePaths{}, err
+	}
+	return telegramStoragePaths{
+		Pending:    pendingPath,
+		Inbox:      inboxPath,
+		PollerLock: filepath.Join(filepath.Dir(inboxPath), "telegram-poller.lock"),
+	}, nil
 }
 
-func whatsAppStorageTargets(cfg config.Config) ([]string, error) {
+func telegramStorageTargets(paths telegramStoragePaths) []string {
+	return dedupeNonEmpty([]string{
+		paths.Pending,
+		paths.Pending + ".lock",
+		paths.Pending + ".tmp",
+		paths.Inbox,
+		paths.Inbox + ".lock",
+		paths.Inbox + ".tmp",
+		paths.PollerLock,
+	})
+}
+
+func effectiveWhatsAppStorePath(cfg config.Config) (string, error) {
 	storePath := strings.TrimSpace(cfg.WhatsApp.StorePath)
 	if storePath == "" {
 		defaultPath, err := config.DefaultWhatsAppStorePath()
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		storePath = defaultPath
 	}
 	expanded, err := config.ExpandPath(storePath)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	storePath = strings.TrimSpace(expanded)
+	return strings.TrimSpace(expanded), nil
+}
+
+func whatsAppStorageTargets(storePath string) []string {
 	return dedupeNonEmpty([]string{
 		storePath,
 		storePath + "-wal",
 		storePath + "-shm",
 		storePath + "-journal",
-	}), nil
+	})
 }
 
 func dedupeNonEmpty(paths []string) []string {

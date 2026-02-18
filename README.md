@@ -46,8 +46,11 @@ consult-human config reset --keep-storage
 
 # explicit storage/cache clear
 consult-human storage clear
+consult-human storage path
 consult-human storage clear --provider telegram
+consult-human storage path --provider telegram
 consult-human storage clear --provider whatsapp
+consult-human storage path --provider whatsapp
 
 # interactive first-time setup
 consult-human setup
@@ -66,6 +69,7 @@ Set provider and credentials:
 # Telegram
 consult-human config set default-provider telegram
 consult-human config set telegram.bot_token "<BOT_TOKEN>"
+consult-human config set telegram.pending_store_path "~/.local/state/consult-human/telegram-pending.json"
 # Optional manual override:
 # consult-human config set telegram.chat_id "<CHAT_ID>"
 
@@ -136,18 +140,22 @@ Why:
 - `ask` verifies polling mode by checking `getWebhookInfo`; if a webhook URL is set, it fails fast with an actionable error.
 - Polling calls use `allowed_updates=["message"]` to reduce non-message noise in this ask/reply flow.
 - Pending Telegram requests are stored on disk so multiple command instances can coordinate.
-- Coordination only applies to instances sharing the same pending-store file (same machine/path by default).
-- If agents run on different machines, they will not coordinate unless you centralize that store (for example, using a network file path).
+- A shared Telegram inbox file plus a single-poller lock coordinates `getUpdates` calls across overlapping `ask` processes.
+- Coordination only applies to instances sharing the same Telegram store directory (same machine/path by default).
+- If agents run on different machines, they will not coordinate unless you centralize that store directory (for example, using a network file path).
 - Pending records now carry an expiry per request, derived from that request's own timeout (`ask --timeout` or `request_timeout`), so instances with different timeout values are handled correctly.
 - Expired/abandoned pending records are pruned automatically during store operations.
 - Pending records also carry owner PID/host metadata; if a local process dies unexpectedly, orphaned records are pruned without waiting for full timeout expiry.
+- Telegram inbox entries are also pruned automatically: ambiguous free-text is dropped immediately in multi-pending mode, and unclaimed entries expire on TTL.
 - With one active request, plain text in the chat is still accepted as a reply (backward-compatible behavior).
 - In that single-active fallback mode, only messages newer than the original prompt are accepted.
 - If multiple unanswered consult-human requests are active, replies must be direct message replies (`Reply` on the exact bot message).
 - In that multi-active case, a non-reply message triggers a reminder to reply to the exact message.
-- Inference from Telegram `getUpdates` semantics: one logical polling consumer per bot token is the most reliable mode. Multi-process polling can still race on update offsets; pending-store coordination improves matching but does not fully replace a single poller/relay architecture.
 - Default pending store path: `${XDG_STATE_HOME:-~/.local/state}/consult-human/telegram-pending.json`
-- Override with `CONSULT_HUMAN_TELEGRAM_PENDING_STORE=/custom/path/telegram-pending.json`
+- Default inbox store path: `${XDG_STATE_HOME:-~/.local/state}/consult-human/telegram-inbox.json`
+- Override in config with `telegram.pending_store_path` (alias `telegram.store_path`).
+- Environment override still takes precedence: `CONSULT_HUMAN_TELEGRAM_PENDING_STORE=/custom/path/telegram-pending.json`
+- Run `consult-human storage path --provider telegram` to print the effective pending/inbox paths.
 
 Telegram best-practice sources:
 - Bot API (`getUpdates`, `getWebhookInfo`, `ForceReply`, formatting): https://core.telegram.org/bots/api

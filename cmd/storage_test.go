@@ -18,11 +18,19 @@ func TestRunStorageClearTelegram(t *testing.T) {
 
 	tgPath := filepath.Join(t.TempDir(), "telegram-pending.json")
 	t.Setenv(config.EnvTelegramPendingStorePath, tgPath)
+	inboxPath := filepath.Join(filepath.Dir(tgPath), "telegram-inbox.json")
+	pollerLock := filepath.Join(filepath.Dir(inboxPath), "telegram-poller.lock")
 	if err := os.WriteFile(tgPath, []byte(`{}`), 0o600); err != nil {
 		t.Fatalf("write telegram pending: %v", err)
 	}
 	if err := os.WriteFile(tgPath+".lock", []byte("1\n"), 0o600); err != nil {
 		t.Fatalf("write telegram lock: %v", err)
+	}
+	if err := os.WriteFile(inboxPath, []byte(`{}`), 0o600); err != nil {
+		t.Fatalf("write telegram inbox: %v", err)
+	}
+	if err := os.WriteFile(pollerLock, []byte("1\n"), 0o600); err != nil {
+		t.Fatalf("write telegram poller lock: %v", err)
 	}
 
 	var out bytes.Buffer
@@ -40,6 +48,12 @@ func TestRunStorageClearTelegram(t *testing.T) {
 	}
 	if _, statErr := os.Stat(tgPath + ".lock"); !os.IsNotExist(statErr) {
 		t.Fatalf("expected telegram pending lock removed, stat err: %v", statErr)
+	}
+	if _, statErr := os.Stat(inboxPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected telegram inbox removed, stat err: %v", statErr)
+	}
+	if _, statErr := os.Stat(pollerLock); !os.IsNotExist(statErr) {
+		t.Fatalf("expected telegram poller lock removed, stat err: %v", statErr)
 	}
 	if !strings.Contains(errOut.String(), "Cleared storage for telegram") {
 		t.Fatalf("expected clear summary, got: %q", errOut.String())
@@ -102,5 +116,79 @@ func TestRunStorageClearInvalidProvider(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "provider must be all, telegram, or whatsapp") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunStoragePathTelegramUsesConfigOverride(t *testing.T) {
+	setTestStateHome(t)
+
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	cfg := config.Default()
+	cfg.Telegram.PendingStorePath = filepath.Join(t.TempDir(), "custom-telegram-pending.json")
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("config.Save: %v", err)
+	}
+	expectedInbox, err := config.EffectiveTelegramInboxStorePath(cfg)
+	if err != nil {
+		t.Fatalf("EffectiveTelegramInboxStorePath: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	err = runStorage([]string{"path", "--provider", "telegram"}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	})
+	if err != nil {
+		t.Fatalf("runStorage path telegram: %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "pending: "+cfg.Telegram.PendingStorePath) {
+		t.Fatalf("missing pending path, got: %q", got)
+	}
+	if !strings.Contains(got, "inbox: "+expectedInbox) {
+		t.Fatalf("missing inbox path, got: %q", got)
+	}
+}
+
+func TestRunStoragePathAll(t *testing.T) {
+	setTestStateHome(t)
+
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	cfg := config.Default()
+	cfg.Telegram.PendingStorePath = filepath.Join(t.TempDir(), "custom-telegram-pending.json")
+	cfg.WhatsApp.StorePath = filepath.Join(t.TempDir(), "custom-whatsapp.db")
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("config.Save: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	err := runStorage([]string{"path"}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	})
+	if err != nil {
+		t.Fatalf("runStorage path all: %v", err)
+	}
+	got := out.String()
+	expectedInbox, err := config.EffectiveTelegramInboxStorePath(cfg)
+	if err != nil {
+		t.Fatalf("EffectiveTelegramInboxStorePath: %v", err)
+	}
+	if !strings.Contains(got, "telegram.pending: "+cfg.Telegram.PendingStorePath) {
+		t.Fatalf("missing telegram path, got: %q", got)
+	}
+	if !strings.Contains(got, "telegram.inbox: "+expectedInbox) {
+		t.Fatalf("missing telegram inbox path, got: %q", got)
+	}
+	if !strings.Contains(got, "whatsapp: "+cfg.WhatsApp.StorePath) {
+		t.Fatalf("missing whatsapp path, got: %q", got)
 	}
 }
