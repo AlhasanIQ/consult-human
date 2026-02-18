@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	EnvConfigPath = "CONSULT_HUMAN_CONFIG"
+	EnvConfigPath               = "CONSULT_HUMAN_CONFIG"
+	EnvTelegramPendingStorePath = "CONSULT_HUMAN_TELEGRAM_PENDING_STORE"
 )
 
 type Config struct {
@@ -67,6 +68,22 @@ func DefaultWhatsAppStorePath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(stateDir, "whatsapp.db"), nil
+}
+
+func DefaultTelegramPendingStorePath() (string, error) {
+	stateDir, err := DefaultStateDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(stateDir, "telegram-pending.json"), nil
+}
+
+func TelegramPendingStorePath() (string, error) {
+	raw := strings.TrimSpace(os.Getenv(EnvTelegramPendingStorePath))
+	if raw == "" {
+		return DefaultTelegramPendingStorePath()
+	}
+	return ExpandPath(raw)
 }
 
 func DefaultStateDir() (string, error) {

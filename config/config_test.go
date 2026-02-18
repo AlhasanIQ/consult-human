@@ -85,3 +85,28 @@ func TestApplyDefaultsNormalizesDisabledWhatsAppProvider(t *testing.T) {
 		t.Fatalf("expected telegram active provider, got %q", cfg.ActiveProvider)
 	}
 }
+
+func TestTelegramPendingStorePathFromEnv(t *testing.T) {
+	t.Setenv(EnvTelegramPendingStorePath, "~/consult-human/pending.json")
+	got, err := TelegramPendingStorePath()
+	if err != nil {
+		t.Fatalf("TelegramPendingStorePath: %v", err)
+	}
+	if strings.Contains(got, "~") {
+		t.Fatalf("expected expanded path, got %q", got)
+	}
+}
+
+func TestDefaultTelegramPendingStorePathUsesStateHome(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	got, err := DefaultTelegramPendingStorePath()
+	if err != nil {
+		t.Fatalf("DefaultTelegramPendingStorePath: %v", err)
+	}
+	want := filepath.Join(stateHome, "consult-human", "telegram-pending.json")
+	if got != want {
+		t.Fatalf("want %q got %q", want, got)
+	}
+}

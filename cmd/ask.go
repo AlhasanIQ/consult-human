@@ -7,9 +7,12 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"os"
+	"os/signal"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/AlhasanIQ/consult-human/config"
@@ -105,7 +108,10 @@ func runAsk(args []string, io IO) error {
 
 	fmt.Fprintf(io.ErrOut, "Sending request %s via %s...\n", req.RequestID, p.Name())
 
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	baseCtx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+
+	ctx, cancel := context.WithTimeout(baseCtx, timeout)
 	defer cancel()
 
 	if _, err := p.Send(ctx, req); err != nil {

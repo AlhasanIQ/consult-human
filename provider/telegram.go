@@ -17,6 +17,7 @@ import (
 )
 
 const telegramReplyReminderCooldown = 20 * time.Second
+const telegramPendingExpiryGrace = 15 * time.Second
 
 type TelegramProvider struct {
 	chatID       int64
@@ -29,6 +30,7 @@ type TelegramProvider struct {
 	nextUpdateID   int64
 	pending        map[string]int64
 	lastReminderAt time.Time
+	pollingChecked bool
 }
 
 func NewTelegram(cfg config.Config) (*TelegramProvider, error) {
@@ -70,6 +72,9 @@ func (p *TelegramProvider) Name() string { return "telegram" }
 func (p *TelegramProvider) Close() error { return nil }
 
 func (p *TelegramProvider) Send(ctx context.Context, req contract.AskRequest) (string, error) {
+	if err := p.ensureLongPollingReady(ctx); err != nil {
+		return "", err
+	}
 	if err := p.ensureChatID(ctx); err != nil {
 		return "", err
 	}
@@ -81,12 +86,17 @@ func (p *TelegramProvider) Send(ctx context.Context, req contract.AskRequest) (s
 
 	chatID := p.chatIDValue()
 	prompt := RenderTelegramPrompt(req)
-	messageID, err := p.sendTelegramMessage(ctx, chatID, prompt)
+	messageID, err := p.sendTelegramMessage(ctx, chatID, prompt, true)
 	if err != nil {
 		return "", err
 	}
 
-	if err := p.registerPending(req.RequestID, chatID, messageID); err != nil {
+	expiresAt := time.Now().UTC().Add(telegramPendingLegacyTTL)
+	if dl, ok := ctx.Deadline(); ok {
+		expiresAt = dl.UTC().Add(telegramPendingExpiryGrace)
+	}
+
+	if err := p.registerPending(req.RequestID, chatID, messageID, expiresAt); err != nil {
 		return "", err
 	}
 
@@ -138,7 +148,11 @@ func (p *TelegramProvider) Receive(ctx context.Context, requestID string) (contr
 					}
 					continue
 				}
-				// Backward-compatible fallback for single active request.
+				// Backward-compatible fallback for a single active request:
+				// only accept messages newer than the original prompt.
+				if msg.MessageID <= targetMessageID {
+					continue
+				}
 			}
 
 			reply := contract.Reply{
@@ -232,7 +246,7 @@ func persistTelegramChatID(chatID int64) {
 	_ = config.Save(cfg)
 }
 
-func (p *TelegramProvider) registerPending(requestID string, chatID, messageID int64) error {
+func (p *TelegramProvider) registerPending(requestID string, chatID, messageID int64, expiresAt time.Time) error {
 	if strings.TrimSpace(requestID) == "" || chatID == 0 || messageID == 0 {
 		return fmt.Errorf("invalid telegram pending request")
 	}
@@ -250,6 +264,9 @@ func (p *TelegramProvider) registerPending(requestID string, chatID, messageID i
 		ChatID:    chatID,
 		MessageID: messageID,
 		CreatedAt: time.Now().UTC(),
+		ExpiresAt: expiresAt.UTC(),
+		OwnerPID:  os.Getpid(),
+		OwnerHost: telegramLocalHostname,
 	})
 	if err != nil {
 		p.mu.Lock()
@@ -319,7 +336,7 @@ func (p *TelegramProvider) maybeSendThreadingReminder(chatID int64, pendingCount
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, _ = p.sendTelegramMessage(ctx, chatID, telegramThreadingReminderText(pendingCount))
+	_, _ = p.sendTelegramMessage(ctx, chatID, telegramThreadingReminderText(pendingCount), false)
 }
 
 func telegramThreadingReminderText(pendingCount int) string {
@@ -332,10 +349,15 @@ func telegramThreadingReminderText(pendingCount int) string {
 	)
 }
 
-func (p *TelegramProvider) sendTelegramMessage(ctx context.Context, chatID int64, text string) (int64, error) {
+func (p *TelegramProvider) sendTelegramMessage(ctx context.Context, chatID int64, text string, forceReply bool) (int64, error) {
 	payload := map[string]any{
 		"chat_id": chatID,
 		"text":    text,
+	}
+	if forceReply {
+		payload["reply_markup"] = map[string]any{
+			"force_reply": true,
+		}
 	}
 
 	body, err := json.Marshal(payload)
@@ -371,6 +393,56 @@ func (p *TelegramProvider) sendTelegramMessage(ctx context.Context, chatID int64
 	return tr.Result.MessageID, nil
 }
 
+func (p *TelegramProvider) ensureLongPollingReady(ctx context.Context) error {
+	p.mu.Lock()
+	checked := p.pollingChecked
+	p.mu.Unlock()
+	if checked {
+		return nil
+	}
+
+	webhookURL, err := p.getWebhookURL(ctx)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(webhookURL) != "" {
+		return fmt.Errorf("telegram webhook is configured; disable it before using consult-human long polling")
+	}
+
+	p.mu.Lock()
+	p.pollingChecked = true
+	p.mu.Unlock()
+	return nil
+}
+
+func (p *TelegramProvider) getWebhookURL(ctx context.Context) (string, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/getWebhookInfo", bytes.NewReader([]byte("{}")))
+	if err != nil {
+		return "", err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.client.Do(httpReq)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return "", fmt.Errorf("telegram getWebhookInfo status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+
+	var wh telegramGetWebhookInfoResponse
+	if err := json.NewDecoder(resp.Body).Decode(&wh); err != nil {
+		return "", err
+	}
+	if !wh.OK {
+		return "", fmt.Errorf("telegram getWebhookInfo failed")
+	}
+	return strings.TrimSpace(wh.Result.URL), nil
+}
+
 func (p *TelegramProvider) getUpdates(ctx context.Context) ([]telegramUpdate, error) {
 	p.mu.Lock()
 	offset := p.nextUpdateID
@@ -383,7 +455,9 @@ func (p *TelegramProvider) getUpdates(ctx context.Context) ([]telegramUpdate, er
 		timeoutSeconds = 50
 	}
 	payload := map[string]any{
-		"timeout": timeoutSeconds,
+		"timeout":         timeoutSeconds,
+		"limit":           100,
+		"allowed_updates": []string{"message"},
 	}
 	if offset > 0 {
 		payload["offset"] = offset
@@ -444,6 +518,15 @@ type telegramSendResponse struct {
 type telegramGetUpdatesResponse struct {
 	OK     bool             `json:"ok"`
 	Result []telegramUpdate `json:"result"`
+}
+
+type telegramGetWebhookInfoResponse struct {
+	OK     bool                `json:"ok"`
+	Result telegramWebhookInfo `json:"result"`
+}
+
+type telegramWebhookInfo struct {
+	URL string `json:"url"`
 }
 
 type telegramUpdate struct {

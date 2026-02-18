@@ -95,7 +95,7 @@ func printConfigUsage(w io.Writer) {
 	fmt.Fprintln(w, "  consult-human config show")
 	fmt.Fprintln(w, "  consult-human config init")
 	fmt.Fprintln(w, "  consult-human config set <key> <value>")
-	fmt.Fprintln(w, "  consult-human config reset [--provider telegram|whatsapp]")
+	fmt.Fprintln(w, "  consult-human config reset [--provider telegram|whatsapp] [--keep-storage]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Supported keys:")
 	fmt.Fprintln(w, "  default-provider | provider | active_provider")
@@ -114,12 +114,14 @@ func runConfigReset(args []string, io IO) error {
 	fs.SetOutput(io.ErrOut)
 
 	var providerName string
+	var keepStorage bool
 	fs.StringVar(&providerName, "provider", "", "Reset only one provider (telegram|whatsapp)")
+	fs.BoolVar(&keepStorage, "keep-storage", false, "Do not clear local storage/cache files during reset")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 {
-		return fmt.Errorf("usage: consult-human config reset [--provider telegram|whatsapp]")
+		return fmt.Errorf("usage: consult-human config reset [--provider telegram|whatsapp] [--keep-storage]")
 	}
 
 	path, err := config.ConfigPath()
@@ -129,6 +131,17 @@ func runConfigReset(args []string, io IO) error {
 
 	providerName = strings.ToLower(strings.TrimSpace(providerName))
 	if providerName == "" {
+		if !keepStorage {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			report, err := clearStorageWithConfig(cfg, storageProviderAll)
+			if err != nil {
+				return err
+			}
+			printStorageClearReport(io.ErrOut, storageProviderAll, report)
+		}
 		if err := os.Remove(path); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				fmt.Fprintf(io.ErrOut, "Config not found at %s\n", path)
@@ -146,6 +159,13 @@ func runConfigReset(args []string, io IO) error {
 
 	if _, err := os.Stat(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			if !keepStorage {
+				report, clearErr := clearStorageWithConfig(config.Default(), providerName)
+				if clearErr != nil {
+					return clearErr
+				}
+				printStorageClearReport(io.ErrOut, providerName, report)
+			}
 			fmt.Fprintf(io.ErrOut, "Config not found at %s\n", path)
 			return nil
 		}
@@ -155,6 +175,14 @@ func runConfigReset(args []string, io IO) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return err
+	}
+
+	if !keepStorage {
+		report, err := clearStorageWithConfig(cfg, providerName)
+		if err != nil {
+			return err
+		}
+		printStorageClearReport(io.ErrOut, providerName, report)
 	}
 
 	switch providerName {

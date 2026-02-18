@@ -11,6 +11,8 @@ import (
 )
 
 func TestRunConfigResetDeletesFile(t *testing.T) {
+	setTestStateHome(t)
+
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv(config.EnvConfigPath, cfgPath)
 
@@ -38,6 +40,8 @@ func TestRunConfigResetDeletesFile(t *testing.T) {
 }
 
 func TestRunConfigResetMissingFile(t *testing.T) {
+	setTestStateHome(t)
+
 	cfgPath := filepath.Join(t.TempDir(), "missing-config.yaml")
 	t.Setenv(config.EnvConfigPath, cfgPath)
 
@@ -56,7 +60,39 @@ func TestRunConfigResetMissingFile(t *testing.T) {
 	}
 }
 
+func TestRunConfigResetProviderMissingFileStillClearsStorage(t *testing.T) {
+	setTestStateHome(t)
+
+	cfgPath := filepath.Join(t.TempDir(), "missing-config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	tgPath := filepath.Join(t.TempDir(), "telegram-pending.json")
+	t.Setenv(config.EnvTelegramPendingStorePath, tgPath)
+	if err := os.WriteFile(tgPath, []byte(`{}`), 0o600); err != nil {
+		t.Fatalf("write telegram pending: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	err := runConfig([]string{"reset", "--provider", "telegram"}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	})
+	if err != nil {
+		t.Fatalf("runConfig reset --provider telegram returned error: %v", err)
+	}
+	if _, statErr := os.Stat(tgPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected telegram pending store to be deleted, stat err: %v", statErr)
+	}
+	if !strings.Contains(errOut.String(), "Config not found at") {
+		t.Fatalf("expected not-found message, got: %q", errOut.String())
+	}
+}
+
 func TestRunConfigResetSpecificProviderTelegram(t *testing.T) {
+	setTestStateHome(t)
+
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv(config.EnvConfigPath, cfgPath)
 
@@ -99,6 +135,8 @@ func TestRunConfigResetSpecificProviderTelegram(t *testing.T) {
 }
 
 func TestRunConfigResetSpecificProviderInvalid(t *testing.T) {
+	setTestStateHome(t)
+
 	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv(config.EnvConfigPath, cfgPath)
 
@@ -115,4 +153,83 @@ func TestRunConfigResetSpecificProviderInvalid(t *testing.T) {
 	if !strings.Contains(err.Error(), "provider must be telegram or whatsapp") {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func TestRunConfigResetDeletesStorageByDefault(t *testing.T) {
+	setTestStateHome(t)
+
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	tgPath := filepath.Join(t.TempDir(), "telegram-pending.json")
+	t.Setenv(config.EnvTelegramPendingStorePath, tgPath)
+
+	cfg := config.Default()
+	cfg.Telegram.BotToken = "tg-token"
+	cfg.Telegram.ChatID = 1234
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("config.Save: %v", err)
+	}
+	if err := os.WriteFile(tgPath, []byte(`{}`), 0o600); err != nil {
+		t.Fatalf("write telegram pending: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	err := runConfig([]string{"reset"}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	})
+	if err != nil {
+		t.Fatalf("runConfig reset returned error: %v", err)
+	}
+	if _, statErr := os.Stat(cfgPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected config to be deleted, stat err: %v", statErr)
+	}
+	if _, statErr := os.Stat(tgPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected telegram pending store to be deleted, stat err: %v", statErr)
+	}
+}
+
+func TestRunConfigResetKeepStorage(t *testing.T) {
+	setTestStateHome(t)
+
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	t.Setenv(config.EnvConfigPath, cfgPath)
+
+	tgPath := filepath.Join(t.TempDir(), "telegram-pending.json")
+	t.Setenv(config.EnvTelegramPendingStorePath, tgPath)
+
+	cfg := config.Default()
+	cfg.Telegram.BotToken = "tg-token"
+	cfg.Telegram.ChatID = 1234
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("config.Save: %v", err)
+	}
+	if err := os.WriteFile(tgPath, []byte(`{}`), 0o600); err != nil {
+		t.Fatalf("write telegram pending: %v", err)
+	}
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	err := runConfig([]string{"reset", "--keep-storage"}, IO{
+		In:     strings.NewReader(""),
+		Out:    &out,
+		ErrOut: &errOut,
+	})
+	if err != nil {
+		t.Fatalf("runConfig reset --keep-storage returned error: %v", err)
+	}
+	if _, statErr := os.Stat(cfgPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected config to be deleted, stat err: %v", statErr)
+	}
+	if _, statErr := os.Stat(tgPath); statErr != nil {
+		t.Fatalf("expected telegram pending store to remain, stat err: %v", statErr)
+	}
+}
+
+func setTestStateHome(t *testing.T) {
+	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 }

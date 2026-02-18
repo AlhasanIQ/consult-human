@@ -1,12 +1,12 @@
 # consult-human
 
-`consult-human` lets coding agents ask a human a question through phone messaging apps, then block until a reply is received.
+`consult-human` lets coding agents ask a human a question through phone messaging apps. We support blocking and non-blocking consultations.
+The project is a SKILL.md and a cli tool, that empowers the agent and steers it to ask the human instead of assuming things. 
 
 ## Goals
 
 - Agent-first CLI contract: reply payload only on stdout
 - Human-friendly mobile loop: answer from Telegram
-- No command framework dependency: stdlib CLI parsing
 
 ## Current Scope
 
@@ -42,6 +42,12 @@ consult-human config show
 consult-human config reset
 consult-human config reset --provider telegram
 consult-human config reset --provider whatsapp
+consult-human config reset --keep-storage
+
+# explicit storage/cache clear
+consult-human storage clear
+consult-human storage clear --provider telegram
+consult-human storage clear --provider whatsapp
 
 # interactive first-time setup
 consult-human setup
@@ -50,6 +56,9 @@ consult-human setup
 consult-human setup --non-interactive
 consult-human setup --non-interactive --provider telegram
 ```
+
+`config reset` now clears local storage/cache by default.
+Use `--keep-storage` if you only want to reset config keys.
 
 Set provider and credentials:
 
@@ -98,6 +107,21 @@ Example stdout payload:
 
 All status logs and errors are written to stderr.
 
+## Agent Skill
+
+- See `SKILL.md` for agent-facing instructions.
+- Primary supported runtime is Claude Code.
+
+## Codex Status (Currently Unsupported)
+
+`consult-human` is currently not supported for Codex-based runtime flows.
+
+Why:
+
+- In our Codex harness tests, long-running tool calls return control quickly and require continued polling of a live session ID to observe completion. If you send any command in steer-mode, codex will abandon polling. And even if you just treat it as a blocking consultation, codex will stop polling soon after. 
+- `consult-human ask` may still complete in the background, but if the agent turn is no longer polling, the human reply is not delivered back into the active agent flow.
+- Workarounds like App Server/MCP relay are not aligned with the goals of this project.
+
 ## WhatsApp Status
 
 - WhatsApp provider is temporarily disabled due stability issues.
@@ -105,17 +129,29 @@ All status logs and errors are written to stderr.
 
 ## Telegram Notes
 
-- `telegram.chat_id` is optional.
-- If it is not set, `consult-human ask` waits for a `/start` message sent to your bot.
+- `telegram.chat_id` is optional. The setup command can fetch it automatically after receiving the first `/start` message sent from you to the bot.
 - On first `/start`, the tool captures and saves that chat ID automatically.
+- Telegram supports `parse_mode` formatting (`MarkdownV2`/`HTML`) in Bot API; current default output remains plain text until provider-format metadata/escaping is wired in.
+- Prompts are sent with Telegram `ForceReply` markup so clients open a direct reply UI.
+- `ask` verifies polling mode by checking `getWebhookInfo`; if a webhook URL is set, it fails fast with an actionable error.
+- Polling calls use `allowed_updates=["message"]` to reduce non-message noise in this ask/reply flow.
 - Pending Telegram requests are stored on disk so multiple command instances can coordinate.
 - Coordination only applies to instances sharing the same pending-store file (same machine/path by default).
-- If agents run on different machines, they will not coordinate unless you centralize that store.
+- If agents run on different machines, they will not coordinate unless you centralize that store (for example, using a network file path).
+- Pending records now carry an expiry per request, derived from that request's own timeout (`ask --timeout` or `request_timeout`), so instances with different timeout values are handled correctly.
+- Expired/abandoned pending records are pruned automatically during store operations.
+- Pending records also carry owner PID/host metadata; if a local process dies unexpectedly, orphaned records are pruned without waiting for full timeout expiry.
 - With one active request, plain text in the chat is still accepted as a reply (backward-compatible behavior).
+- In that single-active fallback mode, only messages newer than the original prompt are accepted.
 - If multiple unanswered consult-human requests are active, replies must be direct message replies (`Reply` on the exact bot message).
 - In that multi-active case, a non-reply message triggers a reminder to reply to the exact message.
+- Inference from Telegram `getUpdates` semantics: one logical polling consumer per bot token is the most reliable mode. Multi-process polling can still race on update offsets; pending-store coordination improves matching but does not fully replace a single poller/relay architecture.
 - Default pending store path: `${XDG_STATE_HOME:-~/.local/state}/consult-human/telegram-pending.json`
 - Override with `CONSULT_HUMAN_TELEGRAM_PENDING_STORE=/custom/path/telegram-pending.json`
+
+Telegram best-practice sources:
+- Bot API (`getUpdates`, `getWebhookInfo`, `ForceReply`, formatting): https://core.telegram.org/bots/api
+- Bot FAQ (`getUpdates` offset usage and polling guidance): https://core.telegram.org/bots/faq#how-do-i-get-updates
 
 ## Test
 

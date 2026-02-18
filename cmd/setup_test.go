@@ -327,3 +327,20 @@ func TestWaitForTelegramStartWithBaseURLTimeout(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestWaitForTelegramStartWithBaseURLWebhookActive(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(w, `{"ok":false,"description":"Conflict: can't use getUpdates method while webhook is active"}`)
+	}))
+	defer srv.Close()
+
+	var out bytes.Buffer
+	_, err := waitForTelegramStartWithBaseURL(srv.URL, time.Second, &out)
+	if err == nil {
+		t.Fatalf("expected webhook-active error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "webhook") {
+		t.Fatalf("expected webhook guidance error, got: %v", err)
+	}
+}

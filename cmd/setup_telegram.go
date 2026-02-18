@@ -109,7 +109,11 @@ func waitForTelegramStartWithBaseURL(baseURL string, timeout time.Duration, w io
 }
 
 func fetchTelegramSetupUpdates(ctx context.Context, client *http.Client, baseURL string, offset int64) ([]setupTelegramUpdate, int64, error) {
-	payload := map[string]any{"timeout": 20}
+	payload := map[string]any{
+		"timeout":         20,
+		"limit":           100,
+		"allowed_updates": []string{"message"},
+	}
 	if offset > 0 {
 		payload["offset"] = offset
 	}
@@ -132,7 +136,11 @@ func fetchTelegramSetupUpdates(ctx context.Context, client *http.Client, baseURL
 
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, offset, fmt.Errorf("telegram getUpdates status %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+		bodyText := strings.TrimSpace(string(b))
+		if strings.Contains(strings.ToLower(bodyText), "webhook") {
+			return nil, offset, fmt.Errorf("telegram webhook is configured; disable webhook mode before running setup")
+		}
+		return nil, offset, fmt.Errorf("telegram getUpdates status %d: %s", resp.StatusCode, bodyText)
 	}
 
 	var decoded setupTelegramGetUpdatesResponse

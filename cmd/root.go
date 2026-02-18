@@ -27,6 +27,8 @@ func Execute(args []string, io IO) error {
 		return runAsk(args[1:], io)
 	case "config":
 		return runConfig(args[1:], io)
+	case "storage", "cache":
+		return runStorage(args[1:], io)
 	case "setup":
 		return runSetup(args[1:], io)
 	case "help", "--help", "-h":
@@ -44,5 +46,6 @@ func printRootUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  consult-human ask [flags] <question>")
 	fmt.Fprintln(w, "  consult-human config <path|show|init|set|reset>")
+	fmt.Fprintln(w, "  consult-human storage <clear>")
 	fmt.Fprintln(w, "  consult-human setup [flags]")
 }
